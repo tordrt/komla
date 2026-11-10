@@ -1,4 +1,4 @@
-import { writeFileSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 import { createLogger } from '../lib/logger';
@@ -124,9 +124,10 @@ class HttpServerService {
       ) {
         delete process.env.KOMLA_API_URL;
       }
+      // Only once it has a port: until then the file is another Komla's, or one left by a crash.
+      if (this.actualPort !== null) this.removePortFile(this.actualPort);
       this.actualPort = null;
       this.startError = null;
-      this.removePortFile();
     }
   }
 
@@ -154,8 +155,14 @@ class HttpServerService {
     }
   }
 
-  private removePortFile(): void {
+  /**
+   * Removes the port file while it still names `port`. Another Komla that shares this data
+   * folder, as one run from source may with the installed app, writes its own port over it
+   * and is still running.
+   */
+  private removePortFile(port: number): void {
     try {
+      if (readFileSync(this.portFilePath, 'utf-8').trim() !== String(port)) return;
       unlinkSync(this.portFilePath);
     } catch {
       // File may already be gone

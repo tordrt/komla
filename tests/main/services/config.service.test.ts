@@ -606,6 +606,34 @@ describe('ConfigService', () => {
       expect(savedData.notificationsEnabled).toBe(true);
     });
 
+    it('writes a save still waiting out its debounce when flushed, as Komla does to quit', async () => {
+      mockExistsSync.mockReturnValue(false);
+      const { configService } = await import('../../../src/main/services/config.service');
+      configService.update({ theme: 'dark' });
+      vi.advanceTimersByTime(400);
+
+      configService.flush();
+
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(mockWriteFileSync.mock.calls[0][1] as string).theme).toBe('dark');
+      // The save it wrote early doesn't write again when its time comes.
+      vi.advanceTimersByTime(600);
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes nothing when flushed with no save waiting', async () => {
+      mockExistsSync.mockReturnValue(false);
+      const { configService } = await import('../../../src/main/services/config.service');
+
+      configService.flush();
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+
+      configService.update({ theme: 'dark' });
+      vi.advanceTimersByTime(600);
+      configService.flush();
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    });
+
     it('round trips disabled agent capabilities through update + reload', async () => {
       mockExistsSync.mockReturnValue(false);
 

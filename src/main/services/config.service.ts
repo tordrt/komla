@@ -636,16 +636,26 @@ class ConfigService {
     if (this.saveDebounceTimer) {
       clearTimeout(this.saveDebounceTimer);
     }
-    this.saveDebounceTimer = setTimeout(() => {
-      try {
-        writeFileAtomicSync(
-          this.configPath,
-          JSON.stringify({ ...this.config, _version: CONFIG_VERSION }, null, 2)
-        );
-      } catch (error) {
-        console.error('Failed to save config:', error);
-      }
-    }, this.SAVE_DEBOUNCE_MS);
+    this.saveDebounceTimer = setTimeout(() => this.write(), this.SAVE_DEBOUNCE_MS);
+  }
+
+  private write(): void {
+    this.saveDebounceTimer = null;
+    try {
+      writeFileAtomicSync(
+        this.configPath,
+        JSON.stringify({ ...this.config, _version: CONFIG_VERSION }, null, 2)
+      );
+    } catch (error) {
+      console.error('Failed to save config:', error);
+    }
+  }
+
+  /** Writes a save still waiting out its debounce, which Komla would otherwise quit without. */
+  flush(): void {
+    if (!this.saveDebounceTimer) return;
+    clearTimeout(this.saveDebounceTimer);
+    this.write();
   }
 
   get(): AppConfig {

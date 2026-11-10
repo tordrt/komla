@@ -23,6 +23,7 @@ import { stepZoomLevel } from '../shared/constants/zoom';
 import { getWorkspaceDisplayTitle } from '../shared/lib/workspace-title';
 
 import { registerIpcHandlers } from './ipc/handlers';
+import { unregisterAskpassHandlers } from './ipc/handlers/askpass.handlers';
 import { moveWorkspaceToWindow } from './ipc/handlers/window.handlers';
 import { onIpcSync } from './ipc/validation/ipc-validators';
 import { cleanupTmpFilesRecursiveAsync } from './lib/atomic-write';
@@ -34,6 +35,7 @@ import { followHookEventsAsKomlaEvents } from './lib/komla-events';
 import { createLogger } from './lib/logger';
 import { MAIN_BUNDLE_DIR } from './lib/module-path';
 import { reportChildProcessGone } from './lib/process-gone-reporter';
+import { createQuitSequence, type QuitPhase } from './lib/quit-sequence';
 import { actionService, registerActionUsageTracker } from './services/action.service';
 import { agentPresetService } from './services/agent-preset.service';
 import { agentsMenuBarService } from './services/agents-menu-bar.service';
@@ -893,80 +895,115 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-let isCleaningUp = false;
-app.on('before-quit', (event) => {
-  if (isCleaningUp) {
-    return; // Already cleaning up, let the quit proceed
+function hideWindows(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.hide();
   }
-  event.preventDefault();
-  if (!windowService.confirmQuit()) return;
-  isCleaningUp = true;
-  // Pressed while quitting, they would show a window that is closing.
-  shortcutsService.releaseGlobalShortcuts();
-  // Before any terminals stop, so the next launch can offer to restart these.
-  workspaceService.rememberRunningAtQuit();
+}
 
-  // Hide windows immediately so the close feels instant — async cleanup
-  // (PTY teardown, service disposal) can take ~a second. Not on Linux: a window
-  // hidden there just before quitting sometimes never closed, so its renderer
-  // never unloaded and Komla kept running, out of sight.
-  if (process.platform !== 'linux') {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.hide();
-    }
-  }
+/**
+ * What Komla does to quit, in order. A phase's steps start together, in the order written, and
+ * the next phase starts once all of them have settled. A step that fails is logged and holds
+ * nothing up. What must happen in order is in separate phases, and the phase says why.
+ */
+const QUIT_PHASES: readonly QuitPhase[] = [
+  {
+    // First, while everything is still as the user left it. A global shortcut pressed while
+    // quitting would show a window that is closing, and the workspaces whose terminals run now
+    // are the ones the next launch offers to restart, so they are noted before any terminal stops.
+    name: 'prepare',
+    steps: {
+      'global shortcuts': () => shortcutsService.releaseGlobalShortcuts(),
+      'running workspaces': () => workspaceService.rememberRunningAtQuit(),
+    },
+  },
+  {
+    // Before anything slow, so the close feels instant: the phases below can take about a
+    // second. Not on Linux: a window hidden there just before quitting sometimes never closed,
+    // so its renderer never unloaded and Komla kept running, out of sight.
+    name: 'hide windows',
+    steps: process.platform === 'linux' ? {} : { windows: hideWindows },
+  },
+  {
+    // Timers and watchers that would otherwise start new work while the phases below wait.
+    name: 'stop background work',
+    steps: {
+      automations: () => automationService.stop(),
+      diagnostics: () => diagnosticsService.stop(),
+      'usage metrics': () => metricsCollectorService.stop(),
+      'remote control keep-awake': () => remoteControlKeepAwakeService.stop(),
+      'keep-awake': () => keepAwakeService.stop(),
+      'agents menu bar': () => agentsMenuBarService.stop(),
+      'pull request status': () => pullRequestStatusService.dispose(),
+      'update checks': () => updateService.dispose(),
+    },
+  },
+  {
+    // A Trash deletion under way finishes before workspaces are saved for the last time.
+    name: 'finish Trash deletion',
+    steps: {
+      Trash: () => workspaceTrash.stop(),
+    },
+  },
+  {
+    // Every terminal has exited once this phase settles, so before app.quit(): node-pty's exit
+    // callback firing during Node's teardown calls into a dying JS environment and aborts the
+    // process (see ptyService.killAll). The workspaces are saved for the last time here too.
+    name: 'stop and save',
+    steps: {
+      'background processes': () => backgroundProcessService.killAll(),
+      // Hooks and status bar commands run in process groups of their own, so they would
+      // outlive Komla.
+      'workspace commands': () => stopWorkspaceCommands(),
+      'remote control server': () => stopPersistedDirectRemoteServer(),
+      terminals: () => ptyService.killAll(),
+      'SSH port forwards': () => sshPortForwardService.dispose(),
+      workspaces: () => workspaceService.dispose(),
+      'worktree watchers': () => worktreeWatcherService.stopAll(),
+      'notes watcher': () => notesService.stopWatching(),
+      customization: () => customizationService.dispose(),
+      shortcuts: () => shortcutsService.dispose(),
+      actions: () => actionService.dispose(),
+      categories: () => categoryService.dispose(),
+      projects: () => projectService.dispose(),
+      'agent presets': () => agentPresetService.dispose(),
+      'settings history': () => settingsHistoryService.dispose(),
+      'status commands watcher': () => stopWatchingStatusCommands(),
+      'sidebar panels watcher': () => stopWatchingSidebarPanels(),
+      'hooks watcher': () => stopWatchingHooks(),
+      'plugins watcher': () => stopWatchingPlugins(),
+      'plugin host': () => stopPluginHost(),
+      'plugin settings': () => stopFeedingPluginSettings(),
+    },
+  },
+  {
+    // Last, once nothing is left to use them. An agent's hooks report to the HTTP server as its
+    // terminal is killed, and ssh run by the phases above asks askpass for a passphrase Komla
+    // remembers. The settings are written here so that a change made by any phase is in them.
+    name: 'close',
+    steps: {
+      'HTTP server': () => httpServerService.stop(),
+      askpass: () => unregisterAskpassHandlers(),
+      settings: () => configService.flush(),
+    },
+  },
+];
 
-  automationService.stop();
-  diagnosticsService.stop();
-  metricsCollectorService.stop();
-  remoteControlKeepAwakeService.stop();
-  keepAwakeService.stop();
-  agentsMenuBarService.stop();
-  pullRequestStatusService.dispose();
-
-  // A Trash deletion under way finishes before workspaces are saved for the last time.
-  void workspaceTrash
-    .stop()
-    .catch((err) => {
-      logger.error('Error finishing workspace work during quit', { error: String(err) });
-    })
-    .finally(finishQuit);
+const quitSequence = createQuitSequence({
+  confirm: () => windowService.confirmQuit(),
+  phases: QUIT_PHASES,
+  quit: () => app.quit(),
+  onStepFailed: ({ phase, step, error }) => {
+    logger.error('Quit step failed', { phase, step, error: String(error) });
+  },
 });
 
-function finishQuit(): void {
-  backgroundProcessService.killAll();
-  // Hooks and status bar commands run in process groups of their own, so they would outlive Komla.
-  stopWorkspaceCommands();
-
-  // Await all shutdown cleanup, including workspace persistence, before quitting.
-  // ptyService.killAll() must complete before app.quit() — otherwise node-pty's
-  // exit ThreadSafeFunction can fire during Node's Environment teardown and
-  // abort the process (uncaught C++ exception when calling into a dying JS env).
-  Promise.all([
-    stopPersistedDirectRemoteServer(),
-    ptyService.killAll(),
-    sshPortForwardService.dispose(),
-    workspaceService.dispose(),
-    worktreeWatcherService.stopAll(),
-    notesService.stopWatching(),
-    customizationService.dispose(),
-    shortcutsService.dispose(),
-    actionService.dispose(),
-    categoryService.dispose(),
-    projectService.dispose(),
-    agentPresetService.dispose(),
-    settingsHistoryService.dispose(),
-    stopWatchingStatusCommands(),
-    stopWatchingSidebarPanels(),
-    stopWatchingHooks(),
-    stopWatchingPlugins(),
-    Promise.resolve().then(stopPluginHost),
-    Promise.resolve().then(stopFeedingPluginSettings),
-  ])
-    .catch((err) => {
-      logger.error('Error stopping watchers during quit', { error: String(err) });
-    })
-    .finally(() => {
-      app.quit();
-    });
-}
+app.on('before-quit', (event) => {
+  // The quit the sequence asks for itself, once every phase is over, and a quit asked for again
+  // while it is stopping things, which goes through so that a step that never settles, such as
+  // one waiting on an unreachable SSH host, can't leave Komla running with its windows hidden.
+  const { kind } = quitSequence.state();
+  if (kind === 'done' || kind === 'cleaning-up') return;
+  event.preventDefault();
+  quitSequence.request();
+});

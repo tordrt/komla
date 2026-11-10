@@ -317,6 +317,20 @@ describe('UpdateService', () => {
       expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(2); // Initial + 1 periodic
     });
 
+    it('stops its periodic checks once disposed, as Komla does to quit', async () => {
+      const { announcementService } =
+        await import('../../../src/main/services/announcement.service');
+      updateService.init();
+      await vi.dynamicImportSettled();
+
+      updateService.dispose();
+      vi.advanceTimersByTime(4 * 60 * 60 * 1000 + 100);
+      await vi.dynamicImportSettled();
+
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(1); // Initial only
+      expect(announcementService.refresh).toHaveBeenCalledTimes(1);
+    });
+
     it('should skip the auto-updater in a build from source but keep announcements', async () => {
       buildInfo.getBuildDistribution.mockReturnValueOnce('source');
       const { announcementService } =

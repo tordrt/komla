@@ -1843,6 +1843,46 @@ describe('HttpServerService', () => {
     it('should be safe to call stop() when not started', () => {
       expect(() => httpServerService.stop()).not.toThrow();
     });
+
+    const portFile = join('/mock/home/.komla', 'port');
+
+    it('removes the port file it wrote when it stops', async () => {
+      const { unlinkSync, writeFileSync } = await import('fs');
+      httpServerService.start();
+      expect(writeFileSync).toHaveBeenCalledWith(portFile, '52863');
+      mockReadFileSync.mockImplementation((path: string) =>
+        path === portFile ? '52863\n' : undefined
+      );
+
+      httpServerService.stop();
+
+      expect(unlinkSync).toHaveBeenCalledWith(portFile);
+    });
+
+    it('leaves a port file another Komla that shares its data folder has written since', async () => {
+      const { unlinkSync } = await import('fs');
+      httpServerService.start();
+      mockReadFileSync.mockImplementation((path: string) =>
+        path === portFile ? '52864' : undefined
+      );
+
+      httpServerService.stop();
+
+      expect(unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it('leaves the port file alone when it stops before it has a port', async () => {
+      const { unlinkSync } = await import('fs');
+      mockServer.listen.mockImplementation(() => {});
+      mockReadFileSync.mockImplementation((path: string) =>
+        path === portFile ? '52863' : undefined
+      );
+      httpServerService.start();
+
+      httpServerService.stop();
+
+      expect(unlinkSync).not.toHaveBeenCalled();
+    });
   });
 
   // --------------------------------------------------------------------------

@@ -37,10 +37,12 @@ vi.mock('../../../../src/renderer/components/workspaces/SetupActivityPanel', () 
   SetupActivityNotificationCenter: () => null,
   WorkspaceSetupActivity: () => null,
 }));
+const splitRenders = vi.hoisted(() => vi.fn());
 vi.mock('../../../../src/renderer/components/terminal/SplitContainer', () => ({
-  SplitContainer: ({ tabId, isActive }: { tabId: string; isActive: boolean }) => (
-    <div data-testid={`split-${tabId}`} data-active={isActive} />
-  ),
+  SplitContainer: ({ tabId, isActive }: { tabId: string; isActive: boolean }) => {
+    splitRenders(tabId);
+    return <div data-testid={`split-${tabId}`} data-active={isActive} />;
+  },
 }));
 vi.mock('../../../../src/renderer/components/terminal/InlineFilePreviewPanel', () => ({
   InlineFilePreviewPanel: () => null,
@@ -447,6 +449,56 @@ describe('TerminalTabs', () => {
       );
       expect(screen.getByTestId('split-t1')).toBe(pane);
       expect(pane).toBeVisible();
+    });
+
+    // Split panes take their sizes from a ResizeObserver, which never fires inside
+    // `content-visibility: hidden`, and a new terminal measures its pane to size its PTY.
+    it('lays out a workspace and a tab that mount hidden once, before the browser skips them', () => {
+      vi.useFakeTimers();
+      try {
+        setUpWorkspace(['t1', 't2']);
+        useWorkspacesStore.setState((state) => ({
+          workspaces: [
+            ...state.workspaces,
+            createWorkspace({ id: 'ws-hidden', terminals: [createTerminal({ id: 't-hidden' })] }),
+          ],
+        }));
+        const layer = (tabId: string, levels: number) => {
+          let element: HTMLElement = screen.getByTestId(`split-${tabId}`);
+          for (let i = 0; i < levels; i++) element = element.parentElement!;
+          return element;
+        };
+
+        splitRenders.mockClear();
+        render(<TerminalTabs />);
+        const hiddenTab = layer('t2', 1);
+        const hiddenWorkspace = layer('t-hidden', 3);
+
+        // Hidden, and still laid out.
+        for (const element of [hiddenTab, hiddenWorkspace]) {
+          expect(element).not.toBeVisible();
+          expect(element.style.contentVisibility).toBe('');
+          expect(element.style.clipPath).toBe('inset(100%)');
+        }
+
+        act(() => {
+          vi.advanceTimersToNextFrame();
+          vi.advanceTimersToNextFrame();
+        });
+
+        for (const element of [hiddenTab, hiddenWorkspace]) {
+          expect(element.style.contentVisibility).toBe('hidden');
+          expect(element.style.visibility).toBe('');
+        }
+        // The shown workspace's panes did not render again for it.
+        expect(splitRenders.mock.calls.filter(([tabId]) => tabId === 't1')).toHaveLength(1);
+        // One that is hidden after it was shown is skipped at once.
+        expect(layer('t1', 1).style.contentVisibility).toBe('');
+        act(() => useLayoutStore.getState().setActiveTab('t2'));
+        expect(layer('t1', 1).style.contentVisibility).toBe('hidden');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     // A page in the work area used to replace the layers: every workspace's terminals were

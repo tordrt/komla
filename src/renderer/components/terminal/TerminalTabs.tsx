@@ -280,6 +280,56 @@ const HIDDEN_LAYER_STYLE: React.CSSProperties = {
   clipPath: 'inset(100%)',
 };
 
+/** Hides a layer the browser still lays out. */
+const LAID_OUT_HIDDEN_LAYER_STYLE: React.CSSProperties = {
+  visibility: 'hidden',
+  clipPath: 'inset(100%)',
+};
+
+/**
+ * How to hide a layer: laid out for its first frames, and skipped by the browser after. A layer
+ * that mounts hidden, as all but one do when the window opens, has never been laid out. Its split
+ * panes take their sizes from a ResizeObserver, which never fires inside
+ * `content-visibility: hidden`, and its new terminals measure their panes to size their PTYs:
+ * skipped from the start, the terminals of a hidden split ran at a width their panes never had,
+ * and were resized twice, with their programs, the first time the workspace was shown.
+ */
+function useHiddenLayerStyle(hiddenAtMount: boolean): React.CSSProperties {
+  // One that mounts shown is laid out while it shows.
+  const [laidOut, setLaidOut] = useState(!hiddenAtMount);
+  useEffect(() => {
+    if (laidOut) return;
+    // Split panes are sized after the first frame's layout, and seen laid out in the second.
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setLaidOut(true));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [laidOut]);
+  return laidOut ? HIDDEN_LAYER_STYLE : LAID_OUT_HIDDEN_LAYER_STYLE;
+}
+
+/** One tab's panes, which stay mounted while another tab of the workspace shows. */
+function TabLayer({
+  hidden,
+  className,
+  children,
+}: {
+  hidden: boolean;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const hiddenStyle = useHiddenLayerStyle(hidden);
+  return (
+    <div className={className} style={hidden ? hiddenStyle : undefined}>
+      {children}
+    </div>
+  );
+}
+
 /** Renders a single workspace's panel layout. Memoized so each layer only re-renders for its own state changes. */
 const WorkspaceLayer = memo(function WorkspaceLayer({
   wsId,
@@ -302,6 +352,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
 }: WorkspaceLayerProps) {
   const terminalBackground = useTerminalBackground();
   const filePanelSurfaceStyle = useFilePanelSurfaceStyle(terminalBackground);
+  const hiddenLayerStyle = useHiddenLayerStyle(!isCurrentWorkspace);
   // Per-workspace store subscriptions — each layer only re-renders for its own slice
   const wsPreviewOpen = useFileViewerStore(
     (s) => s.inlineFilePreviewByWorkspace[wsId]?.open ?? false
@@ -358,7 +409,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
     // The terminal's color behind the side panels; the panes sit on the chrome.
     <div
       className="absolute inset-0 flex"
-      style={isCurrentWorkspace ? { backgroundColor: terminalBackground } : HIDDEN_LAYER_STYLE}
+      style={isCurrentWorkspace ? { backgroundColor: terminalBackground } : hiddenLayerStyle}
     >
       {/* Terminal area — keeps its dimensions even when preview is fullscreen,
            so Allotment split panes don't recalculate to zero-width sizes. The panes are rounded
@@ -371,17 +422,17 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
 
           const isTabActive = isCurrentWorkspace && tabId === wsActiveTabId;
           return (
-            <div
+            <TabLayer
               key={tabId}
+              hidden={!isTabActive}
               // A resize handle after the panes is 3px of the gutter already.
               className={cn(
                 'absolute top-0 bottom-(--pane-gap) left-(--pane-gap)',
                 handleAfterPanes ? 'right-[calc(var(--pane-gap)-3px)]' : 'right-(--pane-gap)'
               )}
-              style={isTabActive ? undefined : HIDDEN_LAYER_STYLE}
             >
               <SplitContainer tabId={tabId} isActive={isTabActive} workspaceId={wsId} />
-            </div>
+            </TabLayer>
           );
         })}
       </div>

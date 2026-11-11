@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn, type ChildProcess } from 'child_process';
-import { chmodSync, copyFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { createServer as createHttpServer } from 'http';
 import { createServer as createNetServer, type Server } from 'net';
 import { tmpdir } from 'os';
@@ -174,8 +174,14 @@ describe.runIf(process.platform === 'linux' && hasCommand('ss') && hasCommand('c
       ).stdout;
 
     afterEach(() => {
-      if (shell?.pid) process.kill(-shell.pid, 'SIGKILL');
+      const pid = shell?.pid;
       shell = undefined;
+      try {
+        if (pid) process.kill(-pid, 'SIGKILL');
+      } catch (error) {
+        // A process that already exited leaves nothing to kill.
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      }
       if (fakeBin) rmSync(fakeBin, { recursive: true, force: true });
       fakeBin = undefined;
       for (const server of servers.splice(0)) server.close();
@@ -229,9 +235,14 @@ describe.runIf(process.platform === 'linux' && hasCommand('ss') && hasCommand('c
     it('reads process names that contain spaces and parentheses', async () => {
       fakeBin = mkdtempSync(join(tmpdir(), 'komla-odd-name-'));
       const oddName = join(fakeBin, 'a (b) c');
-      copyFileSync(execFileSync('sh', ['-c', 'command -v sleep']).toString().trim(), oddName);
-      chmodSync(oddName, 0o755);
-      shell = spawn(oddName, ['30'], { detached: true, stdio: 'ignore' });
+      // Linux names a process after the file it executed, symlink included. Node runs under
+      // any name, unlike a multicall coreutils binary (Ubuntu 26.04's sleep), which exits
+      // when its file name isn't a utility it knows.
+      symlinkSync(process.execPath, oddName);
+      shell = spawn(oddName, ['-e', 'setInterval(() => {}, 1000)'], {
+        detached: true,
+        stdio: 'ignore',
+      });
 
       const snapshot = await collectRemoteListeningPorts(runInShell);
 

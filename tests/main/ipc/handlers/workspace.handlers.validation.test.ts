@@ -473,7 +473,7 @@ describe('workspace IPC validation', () => {
       ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
     };
 
-    mockWorkspaceService.get.mockReturnValue({ id: 'ws-1', status: 'active' });
+    mockWorkspaceService.get.mockReturnValue({ id: 'ws-1', status: 'active', terminals: [] });
     mockWorkspaceService.update.mockReturnValue({
       id: 'ws-1',
       status: 'trashed',

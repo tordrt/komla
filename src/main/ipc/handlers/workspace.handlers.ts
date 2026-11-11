@@ -186,6 +186,11 @@ async function runWorkspaceTrashScript(workspace: Workspace): Promise<void> {
   }
 }
 
+/** A terminal of it runs or is starting, such as a launch that hasn't reached its PTY yet. */
+function startedTerminal(workspace: Workspace | undefined): boolean {
+  return !!workspace?.terminals.some((terminal) => terminal.status !== 'stopped');
+}
+
 export function registerWorkspaceHandlers(): void {
   handleIpc(IPC.WORKSPACE_CREATE, async (_, [params]): Promise<WorkspaceCreateResult> => {
     try {
@@ -372,47 +377,38 @@ export function registerWorkspaceHandlers(): void {
       currentWorkspace.status !== 'trashed' &&
       updates.status === 'trashed';
 
-    if (
-      currentWorkspace &&
-      isSshWorkspace(currentWorkspace) &&
-      currentWorkspace.status === 'active' &&
-      updates.status === 'trashed'
-    ) {
-      // Enforce remote cleanup in main even if a renderer's best-effort
-      // pre-stop failed. Never hide a workspace while its agent may run.
-      await workspaceService.stop(workspaceId);
-    }
-
     if (isTrashing && currentWorkspace) {
-      // Suspend the worktree watcher across cleanup so deleting node_modules /
-      // build outputs doesn't fire a flood of change events. The renderer
-      // trash flow stops PTYs (which stops the watcher) before this IPC
-      // call, so trust the actual watcher state, not workspace.status.
+      // Trusts the watcher's own state, not workspace.status: a window stops the workspace,
+      // and with it the watcher, before it asks for the move.
       const watcherWasActive =
         !isSshWorkspace(currentWorkspace) && worktreeWatcherService.isWatching(workspaceId);
-      if (watcherWasActive) {
-        await worktreeWatcherService.stopWatching(workspaceId).catch(() => {});
-      }
       try {
+        // Main stops it whatever a window's own stop did, and fails the move if it can't: a
+        // workspace is never hidden in the Trash while its agent may run. Stopping also stops
+        // the watcher, so cleanup deleting node_modules or build outputs fires no flood of
+        // changes.
+        await workspaceService.stop(workspaceId);
         await runWorkspaceTrashScript(currentWorkspace);
+        if (isSshWorkspace(currentWorkspace)) {
+          await localCopyService.remove(workspaceId, currentWorkspace.backend);
+        }
+        // Cleanup can take minutes, and it is still an active workspace until it's done: the
+        // CLI or a schedule may have started a terminal there since.
+        if (startedTerminal(workspaceService.get(workspaceId))) {
+          await workspaceService.stop(workspaceId);
+        }
       } catch (error) {
         if (watcherWasActive) {
           worktreeWatcherService
             .startWatching(workspaceId, currentWorkspace.workingDirectory)
             .catch((err) => {
               console.error(
-                `Failed to restart watcher after trash cleanup failure for ${workspaceId}:`,
+                `Failed to restart watcher after a failed move to the Trash for ${workspaceId}:`,
                 err
               );
             });
         }
         throw error;
-      }
-    }
-
-    if (isTrashing && currentWorkspace) {
-      if (isSshWorkspace(currentWorkspace)) {
-        await localCopyService.remove(workspaceId, currentWorkspace.backend);
       }
       currentWorkspace.setupActivities = undefined;
     }

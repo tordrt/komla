@@ -709,7 +709,7 @@ async function finishMovingToTrash(
       await window.api.stopWorkspace(w.id);
       useDevServerPreviewStore.getState().clearSshPreviewForwardState(w.id, { keepStopped: true });
     } catch {
-      // Main stops an SSH workspace again before cleanup, and a failure there keeps it out.
+      // Main stops it again before cleanup, and a failure there keeps it out of the Trash.
     }
   }
 

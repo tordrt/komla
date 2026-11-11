@@ -6,8 +6,8 @@
   "license": "MIT",
   "private": true,
   "homepage": "https://komla.dev",
-  "repository": "github:tordrt/komla",
-  "bugs": "https://github.com/tordrt/komla/issues",
+  "repository": "github:komla-dev/komla",
+  "bugs": "https://github.com/komla-dev/komla/issues",
   "type": "module",
   "main": "./out/main/index.js",
   "devEngines": {

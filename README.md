@@ -87,7 +87,7 @@ Agents talk to their own APIs, as they would in any terminal. Komla's telemetry 
 
 ## Contributing
 
-Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Questions and ideas go to [GitHub issues](https://github.com/tordrt/komla/issues) or [komla.dev/contact](https://komla.dev/contact).
+Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Questions and ideas go to [GitHub issues](https://github.com/komla-dev/komla/issues) or [komla.dev/contact](https://komla.dev/contact).
 
 ## License
 

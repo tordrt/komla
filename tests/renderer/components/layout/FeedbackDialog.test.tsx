@@ -7,6 +7,7 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FeedbackDialog } from '../../../../src/renderer/components/layout/FeedbackDialog';
+import { KOMLA_GITHUB_URL } from '../../../../src/shared/constants/komla-github';
 
 vi.mock('../../../../src/renderer/components/ui/dialog', () => ({
   // "Dismiss" stands in for Escape / outside click, which Radix reports via onOpenChange(false).
@@ -112,7 +113,7 @@ describe('FeedbackDialog', () => {
     await user.type(screen.getByPlaceholderText(/describe what happened/i), 'A long report');
     await user.click(screen.getByRole('button', { name: 'Open a pull request' }));
 
-    expect(window.api.openExternal).toHaveBeenCalledWith('https://github.com/tordrt/komla');
+    expect(window.api.openExternal).toHaveBeenCalledWith(KOMLA_GITHUB_URL);
     expect(window.api.sendFeedback).not.toHaveBeenCalled();
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
 

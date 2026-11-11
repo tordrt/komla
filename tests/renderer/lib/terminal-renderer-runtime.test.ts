@@ -43,6 +43,8 @@ interface MockTerminal {
 interface MockWebglAddon {
   contextLoss?: () => void;
   dispose: ReturnType<typeof vi.fn>;
+  loseContext: ReturnType<typeof vi.fn>;
+  contextLost: boolean;
 }
 
 const xtermState = vi.hoisted(() => ({
@@ -62,7 +64,7 @@ const streamState = vi.hoisted(() => ({
 }));
 const hostState = vi.hoisted(() => ({ clear: vi.fn(), hydrate: vi.fn() }));
 const resizeState = vi.hoisted(() => ({ callbacks: [] as ResizeObserverCallback[] }));
-const renderState = vi.hoisted(() => ({ resume: vi.fn() }));
+const renderState = vi.hoisted(() => ({ resume: vi.fn(), hold: vi.fn(), resize: vi.fn() }));
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
@@ -176,6 +178,16 @@ vi.mock('@xterm/addon-webgl', () => ({
       this.contextLoss = callback;
     });
     dispose = vi.fn();
+    contextLost = false;
+    loseContext = vi.fn();
+    // The addon's private renderer, as far as the runtime reaches into it.
+    _renderer = {
+      _gl: {
+        isContextLost: () => this.contextLost,
+        getExtension: (name: string) =>
+          name === 'WEBGL_lose_context' ? { loseContext: this.loseContext } : null,
+      },
+    };
 
     constructor() {
       xtermState.webglInstances.push(this);
@@ -197,6 +209,8 @@ vi.mock('../../../src/renderer/lib/terminal-host-tracker', () => ({
 }));
 vi.mock('../../../src/renderer/lib/xterm-render-resume', () => ({
   resumeTerminalRendering: renderState.resume,
+  holdHiddenTerminalDrawing: renderState.hold,
+  resizeTerminalRenderer: renderState.resize,
 }));
 vi.mock('../../../src/renderer/lib/xterm-url-links', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/renderer/lib/xterm-url-links')>()),
@@ -257,6 +271,7 @@ describe('TerminalRendererRuntime', () => {
     resizeState.callbacks = [];
     vi.clearAllMocks();
     xtermState.fit.mockImplementation(() => undefined);
+    renderState.hold.mockImplementation((_terminal: unknown, swap: () => void) => swap());
     xtermState.proposeDimensions.mockReset();
     api.getPtyBuffer.mockResolvedValue({ buffer: '', seq: 0 });
     removeResetListener = vi.fn();
@@ -1438,6 +1453,131 @@ describe('TerminalRendererRuntime', () => {
 
     runtime.disposeAll([...terminalIds, 'term-budget-new']);
     expect(runtime.diagnostics().activeWebglContexts).toBe(0);
+  });
+
+  it('gives back the context of a WebGL renderer it gives up, after disposing it', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-release-hidden', makeHost());
+    attach(runtime, 'term-release-shown', makeHost());
+    const [hiddenWebgl, shownWebgl] = xtermState.webglInstances;
+    runtime.setVisible('term-release-hidden', false);
+
+    runtime.setWebglContextLimit(1);
+
+    // xterm only removes the canvas, which leaves the context among Chromium's 16 until garbage
+    // collection; Chromium then takes a hidden terminal's to make room for the next.
+    expect(hiddenWebgl.loseContext).toHaveBeenCalledOnce();
+    expect(hiddenWebgl.dispose.mock.invocationCallOrder[0]).toBeLessThan(
+      hiddenWebgl.loseContext.mock.invocationCallOrder[0]
+    );
+    expect(shownWebgl.loseContext).not.toHaveBeenCalled();
+
+    runtime.dispose('term-release-shown');
+    expect(shownWebgl.loseContext).toHaveBeenCalledOnce();
+  });
+
+  it('leaves alone a context Chromium already took', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-lost', makeHost());
+    const [webgl] = xtermState.webglInstances;
+
+    webgl.contextLost = true;
+    webgl.contextLoss?.();
+
+    expect(webgl.dispose).toHaveBeenCalledOnce();
+    expect(webgl.loseContext).not.toHaveBeenCalled();
+  });
+
+  it('gives a terminal its WebGL renderer before resuming its drawing when shown', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-shown', makeHost());
+    runtime.setVisible('term-shown', false);
+    // Its context went while it was hidden, which leaves it xterm's DOM renderer.
+    xtermState.webglInstances[0].contextLoss?.();
+    let renderersWhenResumed = -1;
+    renderState.resume.mockImplementationOnce(() => {
+      renderersWhenResumed = xtermState.webglInstances.length;
+    });
+
+    runtime.setVisible('term-shown', true);
+
+    // Resumed first, the DOM renderer drew the whole screen only to be replaced.
+    expect(renderersWhenResumed).toBe(2);
+  });
+
+  it('keeps a hidden terminal from drawing once its WebGL renderer is reclaimed', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-held-hidden', makeHost());
+    runtime.setVisible('term-held-hidden', false);
+
+    runtime.setWebglContextLimit(0);
+
+    // Left to xterm, its DOM renderer drew the whole hidden screen once the window was idle.
+    // Held before the renderer goes: xterm draws at once a terminal it still takes for shown.
+    expect(renderState.hold).toHaveBeenCalledExactlyOnceWith(
+      xtermState.terminals[0],
+      expect.any(Function)
+    );
+    expect(renderState.hold.mock.invocationCallOrder[0]).toBeLessThan(
+      xtermState.webglInstances[0].dispose.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('keeps a hidden terminal from drawing once Chromium takes its WebGL context', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-evicted', makeHost());
+    runtime.setVisible('term-evicted', false);
+
+    xtermState.webglInstances[0].contextLoss?.();
+
+    expect(renderState.hold).toHaveBeenCalledExactlyOnceWith(
+      xtermState.terminals[0],
+      expect.any(Function)
+    );
+    expect(xtermState.webglInstances[0].dispose).toHaveBeenCalledOnce();
+  });
+
+  it('lets a shown terminal draw when its WebGL renderer goes', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-shown-loss', makeHost());
+
+    xtermState.webglInstances[0].contextLoss?.();
+
+    expect(renderState.hold).not.toHaveBeenCalled();
+  });
+
+  it('draws a held terminal that is shown without a WebGL renderer to take over', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-held', makeHost());
+    runtime.setVisible('term-held', false);
+    runtime.setWebglContextLimit(0);
+    expect(renderState.hold).toHaveBeenCalledOnce();
+
+    runtime.setVisible('term-held', true);
+
+    expect(xtermState.webglInstances).toHaveLength(1);
+    expect(renderState.resize).toHaveBeenCalledExactlyOnceWith(xtermState.terminals[0]);
+    expect(renderState.resume.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      renderState.resize.mock.invocationCallOrder[0]
+    );
+
+    // Shown again later, there is nothing held to draw.
+    runtime.setVisible('term-held', false);
+    runtime.setVisible('term-held', true);
+    expect(renderState.resize).toHaveBeenCalledOnce();
+  });
+
+  it('leaves a held terminal to its new WebGL renderer when shown', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-held-webgl', makeHost());
+    runtime.setVisible('term-held-webgl', false);
+    runtime.setWebglContextLimit(0);
+    runtime.setWebglContextLimit();
+
+    runtime.setVisible('term-held-webgl', true);
+
+    expect(xtermState.webglInstances).toHaveLength(2);
+    expect(renderState.resize).not.toHaveBeenCalled();
   });
 
   it('gives up hidden WebGL renderers at once when the context budget is lowered', () => {

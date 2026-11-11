@@ -28,13 +28,18 @@ import {
   type WebGLRecoveryState,
 } from '../webgl-recovery';
 import { HyperlinkUnderlineAddon } from '../xterm-hyperlink-underline';
-import { resumeTerminalRendering } from '../xterm-render-resume';
+import {
+  holdHiddenTerminalDrawing,
+  resizeTerminalRenderer,
+  resumeTerminalRendering,
+} from '../xterm-render-resume';
 import {
   terminalHyperlinkTarget,
   WrappedFileLinksAddon,
   WrappedUrlLinksAddon,
   type TerminalDetectedLink,
 } from '../xterm-url-links';
+import { disposeWebglAddon } from '../xterm-webgl-release';
 
 import type {
   AttachTerminalRendererRequest,
@@ -124,6 +129,8 @@ interface TerminalRendererEntry {
   webglAddon: WebglAddon | null;
   webglLastUsed: number;
   webglRecovery: WebGLRecoveryState;
+  /** Lost its WebGL renderer while hidden and was kept from drawing; see `releaseWebglAddon`. */
+  drawingHeld: boolean;
   visibleRepairCleanup?: () => void;
   hoveredLink: TerminalDetectedLink | null;
   sendRightClickToPrograms: boolean;
@@ -413,10 +420,18 @@ export class TerminalRendererRuntime {
 
     const shown = !entry.visible && !entry.movingWhileShown;
     entry.visible = true;
-    resumeTerminalRendering(entry.terminal);
     entry.webglLastUsed = ++this.webglUseSequence;
-    this.restoreVisibleScroll(entry);
+    // Before drawing resumes: a terminal that lost its context while hidden has xterm's DOM
+    // renderer, which resumed first drew the whole screen, measuring each glyph with a layout,
+    // only to be replaced.
     if (!entry.webglAddon) this.initWebgl(entry);
+    resumeTerminalRendering(entry.terminal);
+    if (entry.drawingHeld) {
+      entry.drawingHeld = false;
+      // A new WebGL renderer sizes itself; without one the DOM renderer is still to be sized.
+      if (!entry.webglAddon) resizeTerminalRenderer(entry.terminal);
+    }
+    this.restoreVisibleScroll(entry);
     // Only a pane that was hidden sizes its PTY at once. One already shown, or one that only
     // moved, as in a split, is measured mid-layout and follows its pane like a resize: sizing its
     // PTY at once sent the shell a width the pane had already left, and zsh then left a copy of
@@ -841,6 +856,7 @@ export class TerminalRendererRuntime {
       webglAddon: null,
       webglLastUsed: 0,
       webglRecovery: createRecoveryState(),
+      drawingHeld: false,
       hoveredLink: null,
       sendRightClickToPrograms: false,
       programRightClick: false,
@@ -1195,7 +1211,7 @@ export class TerminalRendererRuntime {
       return createdAddon;
     } catch (error) {
       try {
-        addon?.dispose();
+        if (addon) disposeWebglAddon(addon);
       } catch {
         // A failed renderer load can leave the addon partially initialized.
       }
@@ -1208,11 +1224,7 @@ export class TerminalRendererRuntime {
     if (entry.webglAddon !== addon) return;
     entry.webglAddon = null;
     this.activeWebglContextCount = Math.max(0, this.activeWebglContextCount - 1);
-    try {
-      addon.dispose();
-    } catch {
-      // The context-loss callback can run after the addon has partially torn down.
-    }
+    this.releaseWebglAddon(entry, addon);
     const action = getContextLossAction(entry.visible, entry.webglRecovery.retryCount);
     if (action === 'skip-hidden') return;
     if (action === 'max-retries-reached') {
@@ -1237,11 +1249,22 @@ export class TerminalRendererRuntime {
     if (!addon) return;
     entry.webglAddon = null;
     this.activeWebglContextCount = Math.max(0, this.activeWebglContextCount - 1);
+    this.releaseWebglAddon(entry, addon);
+  }
+
+  /**
+   * Disposes a WebGL addon, which hands its terminal xterm's DOM renderer to draw with. A hidden
+   * terminal waits until shown, where a new WebGL renderer usually takes over before it has drawn.
+   */
+  private releaseWebglAddon(entry: TerminalRendererEntry, addon: WebglAddon): void {
+    const hidden = !entry.visible && !entry.disposed;
     try {
-      addon.dispose();
+      if (hidden) holdHiddenTerminalDrawing(entry.terminal, () => disposeWebglAddon(addon));
+      else disposeWebglAddon(addon);
     } catch {
-      // Renderer cleanup is best-effort during structural teardown.
+      // Best-effort: the addon may be partly torn down, by a context loss or structural teardown.
     }
+    if (hidden) entry.drawingHeld = true;
   }
 
   private reclaimHiddenWebgl(requestingTerminalId: string | null): boolean {

@@ -2097,30 +2097,27 @@ export const TerminalTabs = memo(function TerminalTabs({
     restartAgent,
     onNewWorkspaceDialogChange,
   });
-  // The Overview covers the workspace layers instead of replacing them, so opening and closing it
-  // doesn't unmount and rebuild every workspace's terminals and panels.
+  // A page in the work area hides the workspace layers instead of replacing them. Replaced, every
+  // workspace's terminals were parked and attached again and its panels rebuilt each time a page
+  // came and went: opening the Overview, creating or restarting a workspace, or selecting none.
   const showsOverview = showDashboard && !selectedWorkspace;
-  if (emptyState && !showsOverview) {
-    return (
-      <>
-        <SetupActivityNotificationCenter />
-        {emptyState}
-      </>
-    );
-  }
-  // renderTerminalTabsEmptyState covered these cases, but TS can't narrow through the call.
-  if (!showsOverview && (!selectedWorkspaceId || !selectedWorkspace)) {
-    return <SetupActivityNotificationCenter />;
-  }
-
   return (
     <div ref={contentCallbackRef} className="relative flex h-full min-h-0 flex-row">
       <SetupActivityNotificationCenter />
-      {showsOverview && <div className="absolute inset-0 z-20">{emptyState}</div>}
+      {emptyState && (
+        // The Overview lies over the layers. Any other page stays in the flow, under the line
+        // the sidebar draws along its edge, and the layers leave the flow instead.
+        <div className={showsOverview ? 'absolute inset-0 z-20' : 'min-w-0 flex-1'}>
+          {emptyState}
+        </div>
+      )}
       {/* Left side: tab bar + terminal content */}
       <div
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-        style={showsOverview ? { visibility: 'hidden' } : undefined}
+        className={cn(
+          'flex min-h-0 min-w-0 flex-1 flex-col',
+          emptyState && !showsOverview && 'absolute inset-0'
+        )}
+        style={emptyState ? { visibility: 'hidden' } : undefined}
       >
         {/* Tab bar: the top of the window, so its empty space drags the window. On Windows the
             caption buttons are drawn over its right end. */}
@@ -2129,7 +2126,11 @@ export const TerminalTabs = memo(function TerminalTabs({
             data-testid="workspace-top-row"
             // On the work column's chrome with no line under it: the tabs are pills on the chrome,
             // so a split's gutter, the same chrome, runs up into the row rather than into a tab.
-            className="pane-frame-tabs drag-region relative flex shrink-0 items-stretch"
+            // Hidden under a page, it would still drag the window from the top of the page.
+            className={cn(
+              'pane-frame-tabs relative flex shrink-0 items-stretch',
+              !emptyState && 'drag-region'
+            )}
             style={{ height: topRowHeightPx }}
           >
             <SidebarExpandButton trafficLightInset className="gap-0.5 pr-1 pl-1.5">
@@ -2524,7 +2525,9 @@ export const TerminalTabs = memo(function TerminalTabs({
               <WorkspaceLayer
                 key={wsId}
                 wsId={wsId}
-                isCurrentWorkspace={wsId === selectedWorkspaceId}
+                // Under a page none is: a covered workspace's terminals stop drawing and its
+                // pane shortcuts are off, as when the page replaced it.
+                isCurrentWorkspace={!emptyState && wsId === selectedWorkspaceId}
                 workingDirectory={ws.workingDirectory}
                 isWorktree={!!ws.isWorktree}
                 wsTabs={wsTabs}

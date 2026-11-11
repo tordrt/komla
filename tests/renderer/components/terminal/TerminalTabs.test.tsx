@@ -38,7 +38,9 @@ vi.mock('../../../../src/renderer/components/workspaces/SetupActivityPanel', () 
   WorkspaceSetupActivity: () => null,
 }));
 vi.mock('../../../../src/renderer/components/terminal/SplitContainer', () => ({
-  SplitContainer: ({ tabId }: { tabId: string }) => <div data-testid={`split-${tabId}`} />,
+  SplitContainer: ({ tabId, isActive }: { tabId: string; isActive: boolean }) => (
+    <div data-testid={`split-${tabId}`} data-active={isActive} />
+  ),
 }));
 vi.mock('../../../../src/renderer/components/terminal/InlineFilePreviewPanel', () => ({
   InlineFilePreviewPanel: () => null,
@@ -445,6 +447,95 @@ describe('TerminalTabs', () => {
       );
       expect(screen.getByTestId('split-t1')).toBe(pane);
       expect(pane).toBeVisible();
+    });
+
+    // A page in the work area used to replace the layers: every workspace's terminals were
+    // parked and attached again, and its panels rebuilt, each time one came and went.
+    it.each([
+      {
+        page: 'no workspace is selected',
+        text: 'No active workspaces',
+        show: () => useWorkspacesStore.setState({ selectedWorkspaceId: null }),
+      },
+      {
+        page: 'a workspace still being set up is selected',
+        text: 'Setting up workspace...',
+        show: () =>
+          useWorkspacesStore.setState((state) => ({
+            workspaces: [
+              ...state.workspaces,
+              createWorkspace({ id: 'ws-new', provisioning: true }),
+            ],
+            selectedWorkspaceId: 'ws-new',
+          })),
+      },
+      {
+        page: 'its workspace restarts',
+        text: 'Restarting workspace...',
+        show: () =>
+          useWorkspacesStore.setState({ restartingWorkspaceIds: new Set([WORKSPACE_ID]) }),
+      },
+    ])('keeps the panes mounted, hidden, while $page', ({ text, show }) => {
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+      const pane = screen.getByTestId('split-t1');
+
+      act(show);
+      expect(screen.getByText(text)).toBeVisible();
+      expect(screen.getByTestId('split-t1')).toBe(pane);
+      expect(pane).not.toBeVisible();
+      // Out of sight like any other workspace's: its terminals stop drawing and its pane
+      // shortcuts are off, as when the page had replaced it.
+      expect(pane).toHaveAttribute('data-active', 'false');
+
+      act(() =>
+        useWorkspacesStore.setState({
+          selectedWorkspaceId: WORKSPACE_ID,
+          restartingWorkspaceIds: new Set(),
+        })
+      );
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+      expect(screen.getByTestId('split-t1')).toBe(pane);
+      expect(pane).toBeVisible();
+      expect(pane).toHaveAttribute('data-active', 'true');
+    });
+
+    // The sidebar draws a line along its edge over the work area, which a positioned page hid.
+    it('keeps a page in the flow, where the sidebar draws its edge line over it', () => {
+      setUpWorkspace(['t1']);
+      const { container } = render(<TerminalTabs />);
+
+      act(() => useWorkspacesStore.setState({ selectedWorkspaceId: null }));
+
+      const positioned: Element[] = [];
+      for (
+        let el = screen.getByText('No active workspaces').parentElement;
+        el && el !== container.firstElementChild;
+        el = el.parentElement
+      ) {
+        if (el.classList.contains('absolute')) positioned.push(el);
+      }
+      expect(positioned).toEqual([]);
+      // The panes leave the flow instead, at the size they had.
+      const panes = screen.getByTestId('split-t1').closest('.flex-col');
+      expect(panes).toHaveClass('absolute', 'inset-0');
+      act(() => useWorkspacesStore.setState({ selectedWorkspaceId: WORKSPACE_ID }));
+      expect(panes).not.toHaveClass('absolute');
+    });
+
+    it("keeps a page's top from dragging the window through the hidden tab bar over it", () => {
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+      const tabBar = screen.getByTestId('workspace-top-row');
+      expect(tabBar).toHaveClass('drag-region');
+
+      act(() =>
+        useWorkspacesStore.setState({ restartingWorkspaceIds: new Set([WORKSPACE_ID]) })
+      );
+      expect(screen.getByText('Restarting workspace...')).toBeInTheDocument();
+
+      expect(screen.getByTestId('workspace-top-row')).toBe(tabBar);
+      expect(tabBar).not.toHaveClass('drag-region');
     });
 
     it('does not mount the panes of a workspace again after it stops', () => {

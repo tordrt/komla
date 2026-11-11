@@ -5,26 +5,14 @@
 <h1 align="center">Komla</h1>
 
 <p align="center">
-  <strong>Run coding agents in parallel. Stay in control.</strong><br />
-  Your attention is the bottleneck, not the agents. Komla shows you which agent needs you next.
+  Run AI coding agents in parallel, each in its own git worktree, on your computer or over SSH.
 </p>
 
 <p align="center">
-  <a href="https://komla.dev/download"><img src="https://img.shields.io/badge/Download-339fee?style=for-the-badge" alt="Download Komla" /></a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-0f1014?style=flat" alt="Runs on macOS, Windows and Linux" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-339fee?style=flat" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/free-no%20limits%2C%20no%20account-339fee?style=flat" alt="Free, with no limits and no account" />
-</p>
-
-<p align="center">
+  <a href="https://komla.dev/download"><strong>Download</strong></a> ·
   <a href="https://komla.dev">Website</a> ·
-  <a href="https://komla.dev/download">Download</a> ·
   <a href="docs/FEATURES.md">Features</a> ·
   <a href="docs/CLI.md">Komla CLI</a> ·
-  <a href="https://komla.dev/remote-workspaces">Remote SSH</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
@@ -32,49 +20,28 @@
   <img src="docs/readme/hero.webp" alt="Komla with Claude Code and Codex working side by side, a sidebar of workspaces showing which agents are working, done or waiting for input, and a new task started from the new workspace dialog" width="960" />
 </p>
 
-Komla is a desktop app for running AI coding agent CLIs side by side: Claude Code, Codex, OpenCode, Gemini CLI and any other agent that runs in a terminal. Each task gets a workspace with its own git worktree, so agents never step on each other's changes, and every workspace card shows whether its agent is working, done or waiting on you.
+Komla is a desktop app for macOS, Windows and Linux that runs AI coding agent CLIs side by side: Claude Code, Codex, OpenCode, Gemini CLI and any other agent that runs in a terminal. It is free and open source, with no account.
 
-It runs the real CLI in a real terminal, on your laptop or on your own servers over SSH. Komla is free and open source, with every feature, no limits and no account.
+## Features
 
-## Your agents keep working when your laptop sleeps
-
-Run them on any Linux or macOS host over SSH. Diffs, agent status, previews and file upload and download work as if they ran on your laptop, and Komla forwards the ports so a dev server opens in your own browser. Add a VM or container as a host and let agents skip permission prompts, nowhere near your own files. [How remote workspaces work →](https://komla.dev/remote-workspaces)
-
-<p align="center">
-  <img src="docs/readme/remote.webp" alt="An agent on an SSH host keeps editing a pricing page with its preview open beside it, the laptop sleeps, and the work is done when Komla reconnects" width="100%" />
-</p>
-
-## Build the tools your workflow needs
-
-Describe a status bar item or a sidebar panel and your agent builds it with the `komla` CLI. Each change shows up in a review dialog and applies only when you confirm it. Try a usage-limit indicator or a CI tab for pull request checks. [How agents extend Komla →](docs/CLI.md)
-
-## Your agent CLIs, exactly as they ship
-
-Komla runs the real CLI, not a chat wrapper, so every new model, flag and slash command works the day it ships. Mix them however you like: Claude Code in one workspace, Codex in the next.
-
-Claude Code, Codex CLI, OpenCode, Antigravity CLI, Gemini CLI, Cursor CLI, GitHub Copilot CLI, Amp, Goose and more ship as presets, and any other agent that runs in a terminal can be added.
-
-Claude Code, Codex CLI, OpenCode and Antigravity CLI get one-click notification setup. Any other agent can set up its own notifications with a self-integration skill, or you can add it as a custom command.
-
-## Also in the box
-
-- **Agent status at a glance:** every workspace card shows whether its agent is working, done or waiting on you, with a sound and a notification when one needs you.
-- **One-click previews:** the globe lists each workspace's dev servers, pages and reports, even on an SSH host, and opens one beside the agent.
-- **[Komla CLI for agents](docs/CLI.md):** agents create workspaces, start other agents, open previews and add status bar items, with an optional MCP server.
-- **Diff viewer:** review an agent's changes split or unified, roll back a block or edit a line in place.
-- **Built-in Git GUI:** commit, pull, rebase, push and open pull requests, with commit history, blame and file history.
-- **Pull requests and CI:** see each workspace's pull request, CI checks and tags at a glance.
-- **Command Center:** <kbd>⌘P</kbd> / <kbd>Ctrl+Shift+P</kbd> searches every workspace, command and shortcut, and finds files by name or content.
+- **Any agent CLI:** Komla runs the agent's own CLI in a terminal, so its models, flags and slash commands all work. Presets ship for Claude Code, Codex, OpenCode, Antigravity CLI, Gemini CLI, Cursor CLI, GitHub Copilot CLI, Amp, Goose and more.
+- **A worktree per task:** each workspace has its own git worktree, so agents don't touch each other's changes.
+- **Agent status:** every workspace card shows whether its agent is working, done or waiting on you, with a sound and a notification when one needs you.
+- **Generated titles:** Komla names each workspace from its prompts and the agents' replies, with a title, a short description and a branch name, so the sidebar reads as a list of tasks.
+- **Komla CLI:** every terminal, local or on an SSH host, has `komla` for agents, hooks and scripts. Agents start other agents in new workspaces or tabs, read and steer them and wait for their results, open previews and raise notifications. Scripts tag a workspace, mark its card with its pull request or show progress such as "CI running". An MCP server exposes the same operations. [docs/CLI.md →](docs/CLI.md)
+- **Custom status bar and sidebar panels:** add your own status bar items and sidebar panels, such as a usage-limit indicator or a panel of pull request checks, or describe one and your agent builds it with `komla`. You confirm each change.
+- **Plugins and the Komla SDK:** a plugin bundles status bar items, sidebar panels and hooks into one integration that installs and turns off as one. Its code gets the Komla SDK, a typed TypeScript client for the CLI's operations: it follows events such as an agent finishing or a branch changing, runs commands in a workspace and feeds its panels. Scripts and hooks can use the SDK too. [SDK →](docs/CLI.md#sdk)
+- **SSH hosts:** run workspaces on a Linux or macOS host, where agents keep working while your laptop sleeps. Diffs, previews and file transfer work as they do locally. [Remote workspaces →](https://komla.dev/remote-workspaces)
+  - **Port forwarding:** a dev server on the host opens at `localhost` in one click, through a tunnel Komla makes.
+  - **GUI apps:** `komla desktop run` runs an app on a virtual desktop on the host, which you view over VNC or in a browser tab.
+  - **Local copy:** sync a workspace's source to this computer to run desktop and mobile apps locally.
+- **Review and git:** a diff viewer, commit, pull, rebase and push, pull requests with their CI checks, commit history and blame.
+- **Previews:** open a workspace's dev servers, pages and reports in a browser beside the agent.
 - **Automations:** run an agent on a schedule, each run in its own workspace.
-- **Remote control (alpha):** check on agents and answer them from your phone over your own Tailscale network, with a push notification when one needs you.
-- **Local copy:** sync an SSH workspace to this computer to run desktop and mobile apps locally.
-- **Hooks and Quick Commands:** run your own commands when an agent finishes or needs input, and save prompts and commands for any workspace.
-- **Plugins, sidebar panels and a custom status bar:** bring your own integrations and live status items, or have an agent build them.
-- **File editor:** Monaco with optional Vim mode, a rich Markdown editor and per-workspace notes.
-- **Voice dictation:** dictate prompts offline, in 25 languages.
-- **Terminal tabs and splits, multiple windows, custom themes and rebindable shortcuts.**
+- **Remote control (alpha):** check on agents and answer them from your phone over your own Tailscale network.
+- **And:** a file editor, offline voice dictation, a Command Center, hooks, Quick Commands, terminal splits, multiple windows and themes.
 
-[docs/FEATURES.md](docs/FEATURES.md) describes everything Komla does.
+[docs/FEATURES.md](docs/FEATURES.md) has the full list. Comparisons: [Conductor](https://komla.dev/guides/conductor-vs-komla), [cmux](https://komla.dev/guides/cmux-vs-komla) and [the Codex app](https://komla.dev/guides/codex-app-vs-komla).
 
 ## Install
 
@@ -88,82 +55,40 @@ Claude Code, Codex CLI, OpenCode and Antigravity CLI get one-click notification 
 
 You need Git and an agent CLI, such as Claude Code or Codex. Add a git repo, describe a task and pick the agent to run it.
 
-Komla downloads new versions in the background and installs them the next time you quit it. On Linux that works when you run the AppImage file itself.
-
-## Questions
-
-<details>
-<summary><strong>Why not just run my agents in a few terminal tabs?</strong></summary>
-
-Tabs work for two or three agents. Past that, the hard part is knowing which one is waiting on you, and keeping them out of each other's changes. Komla gives each task its own git worktree and shows on every card which agents need you.
-
-</details>
-
-<details>
-<summary><strong>How is Komla different from other agent managers?</strong></summary>
-
-- It runs your real agent CLI in a real terminal, on your laptop or over SSH.
-- Any agent that runs in a terminal works, with its own flags and slash commands.
-- Your agents can drive Komla themselves through its CLI.
-- It's free and open source, with no account.
-
-Side by side: [Conductor](https://komla.dev/guides/conductor-vs-komla), [cmux](https://komla.dev/guides/cmux-vs-komla) and [the Codex app](https://komla.dev/guides/codex-app-vs-komla).
-
-</details>
-
-<details>
-<summary><strong>Is my code sent anywhere?</strong></summary>
-
-Your code stays on your machine, and the agents talk to their own APIs, as they would in any terminal. Komla's two AI helpers are optional and send only this:
-
-- **Workspace names:** a new workspace's prompt, to name it. On by default.
-- **Commit messages:** your staged diff, only when you click generate.
-
-That text goes through OpenRouter to Google, OpenAI or Mistral, which don't train on it, and Komla doesn't store it. Turn either helper off or use your own key in settings.
-
-</details>
-
-<details>
-<summary><strong>Can I use Komla alongside my IDE?</strong></summary>
-
-Yes. Each workspace is a normal folder on disk. Open it in VS Code, Cursor, Windsurf or Xcode with one click, or point any other editor at it.
-
-</details>
-
-<details>
-<summary><strong>What happens to worktrees when I'm done?</strong></summary>
-
-Archive a workspace to hide it, or delete it to remove the worktree and branch from disk. They're standard git worktrees, so you can also manage them with git.
-
-</details>
+Komla updates itself. On Linux that works when you run the AppImage file itself.
 
 ## Build from source
 
-You need Node.js 22 and npm 11, plus the native build tools for `node-pty` and `keyboard-layout`: the Xcode Command Line Tools on macOS, `build-essential`, Python, `libx11-dev` and `libxkbfile-dev` on Linux, or the Visual Studio Build Tools on Windows. On Windows, run the commands from Git Bash.
+You need Node.js 22, npm 11 and the build tools for the native modules:
 
-Rust ([rustup](https://rustup.rs)) is optional. It builds the `komla` CLI and the companion that SSH workspaces use (`npm run dev -- --companion`) and runs their tests, which `npm test` skips without it.
+- **macOS:** Xcode Command Line Tools
+- **Linux:** `build-essential`, Python, `libx11-dev` and `libxkbfile-dev`
+- **Windows:** Visual Studio Build Tools; run the commands from Git Bash
+
+Rust ([rustup](https://rustup.rs)) is optional. It builds the `komla` CLI and the companion that SSH workspaces use, and `npm test` skips their tests without it.
 
 ```bash
 npm install
 npm run dev
 ```
 
-`npm run dev` keeps its data in `~/.komla-dev`, so it never touches an installed Komla. To package an installer, follow [Manual Platform Builds](docs/RELEASING.md#manual-platform-builds). Packaging bundles the Komla CLI for every platform, and its macOS builds need a Mac.
+`npm run dev` keeps its data in `~/.komla-dev`, apart from an installed Komla. To package an installer, follow [Manual Platform Builds](docs/RELEASING.md#manual-platform-builds).
 
-Builds from source don't update themselves. Komla's AI helpers, which name workspaces and write commit messages, work in them once you choose a custom endpoint under Settings → General → AI utilities.
+Builds from source don't update themselves, and their AI helpers need a custom endpoint under Settings → General → AI utilities.
 
 ## Privacy
 
-By default Komla sends an anonymous install ping and a daily heartbeat (app version, OS and agent, no install ID), plus crash reports. Usage analytics tied to a random install ID are opt-in. Settings → General → Privacy changes either. `DO_NOT_TRACK=1` turns all of it off when it's set in the environment Komla starts in, such as a terminal you launch it from; a shell profile doesn't reach an app opened from the Dock or Start menu. [docs/ANALYTICS.md](docs/ANALYTICS.md) lists every event.
+Agents talk to their own APIs, as they would in any terminal. Komla's telemetry and AI helpers send this:
+
+- **Telemetry:** an anonymous install ping, a daily heartbeat (app version, OS and agent, no install ID) and crash reports, all on by default. Usage analytics, tied to a random install ID, are opt-in. Settings → General → Privacy sets the level and has the switch for crash reports. `DO_NOT_TRACK=1` turns all of it off when it is set in the environment Komla starts in, such as a terminal you launch it from; a shell profile doesn't reach an app opened from the Dock or Start menu. [docs/ANALYTICS.md](docs/ANALYTICS.md) lists every event.
+- **AI helpers:** two optional helpers send text through OpenRouter to Google, OpenAI or Mistral, which don't train on it, and Komla doesn't store it. Turn either off or use your own key in settings.
+  - **Workspace names:** a workspace's prompts and the agents' replies to them, to name it. On by default.
+  - **Commit messages:** your staged diff, only when you click generate.
 
 ## Contributing
 
-Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start. Questions and ideas go to [GitHub issues](https://github.com/tordrt/komla/issues) or straight to the maintainer through [komla.dev/contact](https://komla.dev/contact).
+Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Questions and ideas go to [GitHub issues](https://github.com/tordrt/komla/issues) or [komla.dev/contact](https://komla.dev/contact).
 
 ## License
 
-Copyright © 2026 Tafjord Invest AS
-
-Komla is open source under the [MIT License](LICENSE).
-
-The license covers the code, not the Komla name or logo. If you distribute a modified version, give it a different name. [TRADEMARK.md](TRADEMARK.md) has the details.
+[MIT](LICENSE), copyright © 2026 Tafjord Invest AS. The license covers the code, not the Komla name or logo: a modified version you distribute needs a different name. See [TRADEMARK.md](TRADEMARK.md).

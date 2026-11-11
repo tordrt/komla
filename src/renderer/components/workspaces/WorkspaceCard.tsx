@@ -196,9 +196,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const isRestarting = useWorkspacesStore(
     (s) => s.restartingWorkspaceIds?.has(workspace.id) ?? false
   );
-  const pendingAction = useWorkspacesStore((s): CardPendingAction | undefined =>
-    s.reconnectingSshWorkspaceIds?.has(workspace.id) ? 'connecting' : undefined
-  );
   const deleteWorkspace = useWorkspacesStore((s) => s.deleteWorkspace);
   const setWorkspaceTrashed = useWorkspacesStore((s) => s.setWorkspaceTrashed);
   const trashWorkspaceWithUndo = useWorkspacesStore((s) => s.trashWorkspaceWithUndo);
@@ -518,12 +515,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         <ActivityRow
           workspace={workspace}
           disconnectedFrom={hostDisconnected ? (sshHost?.name ?? 'its SSH host') : undefined}
-          pending={
-            pendingAction && {
-              action: pendingAction,
-              hostName: isRemoteWorkspace ? sshHost?.name || 'its SSH host' : undefined,
-            }
-          }
           shownRunning={shownRunning}
           showGitStatus={showGitStatus}
           lead={!branchLineUnderTitle && branchOrProvisionLine}
@@ -1514,43 +1505,9 @@ function showsGitStatus(workspace: Workspace): boolean {
   );
 }
 
-type CardPendingAction = 'connecting';
-
-const PENDING_ACTIONS: Record<
-  CardPendingAction,
-  { label: string; onHost: (hostName: string) => string }
-> = {
-  connecting: { label: 'Connecting…', onHost: (host) => `Connecting to ${host}…` },
-};
-
-/**
- * What the workspace is waiting on, in the time's place, so a reconnect held up by an SSH host
- * doesn't look like a frozen card.
- */
-function PendingActionStatus({
-  action,
-  hostName,
-}: {
-  action: CardPendingAction;
-  hostName?: string;
-}) {
-  const { label, onHost } = PENDING_ACTIONS[action];
-  return (
-    <span
-      role="status"
-      className="ml-auto flex min-w-0 items-center gap-1 text-ui whitespace-nowrap text-muted-foreground-70"
-      title={hostName ? onHost(hostName) : undefined}
-    >
-      <Spinner size="xs" />
-      <span className="truncate">{label}</span>
-    </span>
-  );
-}
-
 function ActivityRow({
   workspace,
   disconnectedFrom,
-  pending,
   shownRunning,
   showGitStatus,
   lead,
@@ -1560,8 +1517,6 @@ function ActivityRow({
   workspace: Workspace;
   /** The name of its SSH host, which the user disconnected from. */
   disconnectedFrom: string | undefined;
-  /** A reconnect that hasn't finished, and the SSH host it waits on. */
-  pending: { action: CardPendingAction; hostName: string | undefined } | undefined;
   shownRunning: boolean;
   showGitStatus: boolean;
   /** What fills the row's free space ahead of the time, such as the branch. */
@@ -1579,8 +1534,7 @@ function ActivityRow({
     !lead &&
     linkedCount === 0 &&
     !workspace.lastActivityAt &&
-    !disconnectedFrom &&
-    !pending
+    !disconnectedFrom
   ) {
     return null;
   }
@@ -1608,18 +1562,13 @@ function ActivityRow({
           {linkedCount}
         </span>
       )}
-      {launchUndo ||
-        (pending ? (
-          <PendingActionStatus action={pending.action} hostName={pending.hostName} />
-        ) : (
-          <ActivityTime workspace={workspace} showWorkingClock={showWorkingClock} />
-        ))}
+      {launchUndo || <ActivityTime workspace={workspace} showWorkingClock={showWorkingClock} />}
       {disconnectedFrom && (
         <span
           className={cn(
             'flex shrink-0 items-center text-muted-foreground-70',
             // After the time, which keeps the row's end; without it, this does.
-            !workspace.lastActivityAt && !launchUndo && !pending && 'ml-auto'
+            !workspace.lastActivityAt && !launchUndo && 'ml-auto'
           )}
           title={`Disconnected from ${disconnectedFrom}. Its agents keep running there, and what shows here may be out of date.`}
         >

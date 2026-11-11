@@ -1862,25 +1862,18 @@ describe('WorkspaceCard', () => {
     expect(workspacesState.stopWorkspace).toHaveBeenCalledWith(workspace.id);
   });
 
-  describe('while it waits on a stop or its SSH host', () => {
-    it('says it is connecting while it reconnects to its SSH host', () => {
-      const workspace = createSshWorkspace({
-        terminals: [createTerminal({ status: 'stopped', remoteSessionResumable: true })],
-      });
-      workspacesState.reconnectingSshWorkspaceIds = new Set([workspace.id]);
-
-      render(<WorkspaceCard workspace={workspace} />);
-
-      expect(screen.getByRole('status')).toHaveTextContent('Connecting…');
+  it('keeps showing its time while it reconnects to its SSH host, which its panes say', () => {
+    const workspace = createSshWorkspace({
+      lastActivityAt: Date.now(),
+      terminals: [createTerminal({ status: 'stopped', remoteSessionResumable: true })],
     });
+    workspacesState.reconnectingSshWorkspaceIds = new Set([workspace.id]);
 
-    it('shows its time again once nothing is pending', () => {
-      const workspace = createWorktreeWorkspace({ lastActivityAt: Date.now() });
+    render(<WorkspaceCard workspace={workspace} />);
 
-      render(<WorkspaceCard workspace={workspace} />);
-
-      expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText('Connecting…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByText('now')).toBeInTheDocument();
   });
 
   it('offers no Stop while the tmux sessions of a stopped workspace are unchecked', () => {

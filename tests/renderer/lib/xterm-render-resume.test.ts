@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   holdHiddenTerminalDrawing,
-  resizeTerminalRenderer,
   resumeTerminalRendering,
+  stopHiddenTerminalDrawing,
 } from '../../../src/renderer/lib/xterm-render-resume';
 
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -16,9 +16,15 @@ interface TerminalInternals {
   _core: {
     _createRenderer(): unknown;
     _renderService: {
+      dimensions: unknown;
       setRenderer(renderer: unknown): void;
       handleResize(cols: number, rows: number): void;
-      _renderer: { value: { handleResize(cols: number, rows: number): void } };
+      _renderer: {
+        value: {
+          handleResize(cols: number, rows: number): void;
+          renderRows(start: number, end: number): void;
+        };
+      };
     };
   };
 }
@@ -111,16 +117,161 @@ describe('holdHiddenTerminalDrawing', () => {
     expect(draw).not.toHaveBeenCalled();
     terminal.dispose();
   });
+});
 
-  it('is drawn by resizeTerminalRenderer once shown', async () => {
-    const { terminal } = openTerminal();
-    const draw = replaceRendererHeld(terminal);
+const hidden = { isIntersecting: false, intersectionRatio: 0 };
+/** Hides a terminal once the frame xterm had already queued for it has drawn. */
+const hide = async (reportIntersection: (entry: Partial<IntersectionObserverEntry>) => void) => {
+  await nextFrame();
+  reportIntersection(hidden);
+};
+const write = (terminal: Terminal, data: string) =>
+  new Promise<void>((resolve) => terminal.write(data, resolve));
+/** Rows the terminal's renderer drew, however xterm came to draw them. */
+const drawnRows = (terminal: Terminal) =>
+  vi.spyOn(
+    (terminal as unknown as TerminalInternals)._core._renderService._renderer.value,
+    'renderRows'
+  );
+/** A renderer that is not xterm's DOM renderer, as the WebGL addon's is not. */
+const otherRenderer = (terminal: Terminal) => ({
+  dimensions: (terminal as unknown as TerminalInternals)._core._renderService.dimensions,
+  onRequestRedraw: () => ({ dispose() {} }),
+  handleResize: vi.fn(),
+  handleSelectionChanged() {},
+  handleCursorMove() {},
+  handleDevicePixelRatioChange() {},
+  handleCharSizeChanged() {},
+  handleBlur() {},
+  handleFocus() {},
+  handleColorChange() {},
+  handleOptionsChanged() {},
+  renderRows() {},
+  clear() {},
+  clearTextureAtlas() {},
+  dispose() {},
+});
+
+describe('stopHiddenTerminalDrawing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.replaceChildren();
+  });
+
+  it('is needed: a hidden terminal draws every row each time its output scrolls', async () => {
+    const { terminal, reportIntersection } = openTerminal();
+    await hide(reportIntersection);
+    const drawn = drawnRows(terminal);
+
+    await write(terminal, 'one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\n');
+    await nextFrame();
+
+    expect(drawn).toHaveBeenCalledWith(0, terminal.rows - 1);
+    terminal.dispose();
+  });
+
+  it('keeps a hidden terminal from drawing as its output scrolls', async () => {
+    const { terminal, reportIntersection } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    await hide(reportIntersection);
+    const drawn = drawnRows(terminal);
+
+    await write(terminal, 'one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\n');
+    await nextFrame();
+    await idle();
+
+    expect(drawn).not.toHaveBeenCalled();
+    terminal.dispose();
+  });
+
+  it('keeps one from drawing when it is resized', async () => {
+    const { terminal, reportIntersection } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    await hide(reportIntersection);
+    const drawn = drawnRows(terminal);
+
+    terminal.resize(30, 6);
+    await idle();
+
+    expect(drawn).not.toHaveBeenCalled();
+    terminal.dispose();
+  });
+
+  it('draws the terminal at its new size, with what it printed, once it is shown', async () => {
+    const { terminal, reportIntersection } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    await hide(reportIntersection);
+    terminal.resize(30, 6);
+    await write(terminal, 'printed while hidden');
+    await idle();
 
     resumeTerminalRendering(terminal);
-    expect(draw).not.toHaveBeenCalled();
-    resizeTerminalRenderer(terminal);
+    await nextFrame();
 
-    expect(draw).toHaveBeenCalledExactlyOnceWith(terminal.cols, terminal.rows);
+    const rows = [...document.querySelectorAll('.xterm-rows > div')];
+    expect(rows).toHaveLength(6);
+    expect(rows[0].textContent).toContain('printed while hidden');
+    terminal.dispose();
+  });
+
+  it('draws a selection made while it was hidden once it is shown', async () => {
+    const { terminal, reportIntersection } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    await write(terminal, 'select this');
+    reportIntersection(hidden);
+
+    terminal.select(0, 0, 6);
+    await nextFrame();
+    expect(document.querySelector('.xterm-selection div')).toBeNull();
+    resumeTerminalRendering(terminal);
+
+    expect(document.querySelector('.xterm-selection div')).not.toBeNull();
+    terminal.dispose();
+  });
+
+  it('leaves a shown terminal drawing as before', async () => {
+    const { terminal } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    const drawn = drawnRows(terminal);
+
+    await write(terminal, 'one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\n');
+    await nextFrame();
+
+    expect(drawn).toHaveBeenCalledWith(0, terminal.rows - 1);
+    terminal.dispose();
+  });
+
+  it('leaves a resize to a renderer that is not the DOM renderer, and never repeats it', async () => {
+    // The WebGL renderer only resizes its canvas, which xterm puts off until the window is idle.
+    const { terminal, reportIntersection } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    const renderer = otherRenderer(terminal);
+    (terminal as unknown as TerminalInternals)._core._renderService.setRenderer(renderer);
+    renderer.handleResize.mockClear();
+    reportIntersection(hidden);
+
+    terminal.resize(30, 6);
+    await idle();
+    expect(renderer.handleResize).toHaveBeenCalledExactlyOnceWith(30, 6);
+    resumeTerminalRendering(terminal);
+
+    expect(renderer.handleResize).toHaveBeenCalledOnce();
+    terminal.dispose();
+  });
+
+  it('drops a resize it held once another renderer has taken over', async () => {
+    // Shown, a terminal gets its WebGL renderer before it resumes, and that one sized itself.
+    const { terminal, reportIntersection } = openTerminal();
+    stopHiddenTerminalDrawing(terminal);
+    await hide(reportIntersection);
+    terminal.resize(30, 6);
+    const renderer = otherRenderer(terminal);
+    (terminal as unknown as TerminalInternals)._core._renderService.setRenderer(renderer);
+    renderer.handleResize.mockClear();
+
+    resumeTerminalRendering(terminal);
+
+    expect(renderer.handleResize).not.toHaveBeenCalled();
     terminal.dispose();
   });
 });

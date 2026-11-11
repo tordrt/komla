@@ -1,13 +1,23 @@
 import type { Terminal } from '@xterm/xterm';
 
+type SelectionChange = [
+  start: [number, number] | undefined,
+  end: [number, number] | undefined,
+  columnSelectMode: boolean,
+];
+
+interface RenderService {
+  _isPaused?: boolean;
+  _renderer?: { value?: object };
+  _handleIntersectionChange?: (entry: IntersectionObserverEntry) => void;
+  _pausedResizeTask?: { _queue?: { clear?: () => void } };
+  handleResize?: (cols: number, rows: number) => void;
+  handleSelectionChanged?: (...change: SelectionChange) => void;
+  handleCursorMove?: () => void;
+}
+
 interface RenderServiceInternals {
-  _core?: {
-    _renderService?: {
-      _handleIntersectionChange?: (entry: IntersectionObserverEntry) => void;
-      _pausedResizeTask?: { _queue?: { clear?: () => void } };
-      handleResize?: (cols: number, rows: number) => void;
-    };
-  };
+  _core?: { _renderService?: RenderService };
 }
 
 const renderService = (terminal: Terminal) =>
@@ -32,8 +42,8 @@ export function resumeTerminalRendering(terminal: Terminal): void {
  * It puts off an off-screen terminal's resize only until the window is idle, and the DOM renderer
  * a terminal falls back to when its WebGL renderer goes then draws every row, measuring each new
  * glyph with a layout of the page: the window froze shortly after another workspace was shown.
- * `resizeTerminalRenderer` draws it once it is shown. Uses xterm's private render service; if an
- * upgrade removes it, the hidden terminal draws as before.
+ * `stopHiddenTerminalDrawing` holds the resize until the terminal is shown. Uses xterm's private
+ * render service; if an upgrade removes it, the hidden terminal draws as before.
  */
 export function holdHiddenTerminalDrawing(terminal: Terminal, swapRenderer: () => void): void {
   const service = renderService(terminal);
@@ -48,9 +58,48 @@ export function holdHiddenTerminalDrawing(terminal: Terminal, swapRenderer: () =
   }
 }
 
-/** Sizes and draws a terminal with the renderer it has now, as its held resize would have. */
-export function resizeTerminalRenderer(terminal: Terminal): void {
+/**
+ * Keeps a terminal from drawing while it is off screen, for good. xterm stops an off-screen
+ * terminal's ordinary redraws, but not all of them: with its DOM renderer, which a terminal
+ * without a WebGL renderer draws with, it still drew every row each time the output scrolled and
+ * shortly after each resize, and the cursor's row on each write, measuring each new glyph with a
+ * layout of the page. With agents printing in a dozen hidden terminals that kept the window busy,
+ * and froze it when many of them had just lost their WebGL renderers. What was skipped is drawn
+ * when the terminal is shown: xterm redraws every row then, and this hands it the resize and
+ * selection it missed. Uses xterm's private render service; if an upgrade changes it, hidden
+ * terminals draw as before.
+ */
+export function stopHiddenTerminalDrawing(terminal: Terminal): void {
   const service = renderService(terminal);
-  if (service?.handleResize) service.handleResize(terminal.cols, terminal.rows);
-  else terminal.refresh(0, terminal.rows - 1);
+  if (!service || typeof service._isPaused !== 'boolean') return;
+  const { handleResize, handleSelectionChanged, handleCursorMove, _handleIntersectionChange } =
+    service;
+  if (!handleResize || !handleSelectionChanged || !handleCursorMove || !_handleIntersectionChange) {
+    return;
+  }
+  // The WebGL renderer only resizes its canvas, which xterm leaves until the window is idle.
+  const drawsInDom = () => !!service._renderer?.value && '_rowContainer' in service._renderer.value;
+  let heldResize = false;
+  let heldSelection: SelectionChange | undefined;
+
+  service.handleResize = (cols, rows) => {
+    if (service._isPaused && drawsInDom()) heldResize = true;
+    else handleResize.call(service, cols, rows);
+  };
+  service.handleSelectionChanged = (...change) => {
+    if (service._isPaused) heldSelection = change;
+    else handleSelectionChanged.apply(service, change);
+  };
+  service.handleCursorMove = () => {
+    if (!service._isPaused) handleCursorMove.call(service);
+  };
+  service._handleIntersectionChange = (entry) => {
+    _handleIntersectionChange.call(service, entry);
+    if (service._isPaused) return;
+    // A renderer that took over meanwhile, as a WebGL one does when shown, sized itself.
+    if (heldResize && drawsInDom()) handleResize.call(service, terminal.cols, terminal.rows);
+    heldResize = false;
+    if (heldSelection) handleSelectionChanged.apply(service, heldSelection);
+    heldSelection = undefined;
+  };
 }

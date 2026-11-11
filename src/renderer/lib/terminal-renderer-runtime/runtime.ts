@@ -30,8 +30,8 @@ import {
 import { HyperlinkUnderlineAddon } from '../xterm-hyperlink-underline';
 import {
   holdHiddenTerminalDrawing,
-  resizeTerminalRenderer,
   resumeTerminalRendering,
+  stopHiddenTerminalDrawing,
 } from '../xterm-render-resume';
 import {
   terminalHyperlinkTarget,
@@ -129,8 +129,6 @@ interface TerminalRendererEntry {
   webglAddon: WebglAddon | null;
   webglLastUsed: number;
   webglRecovery: WebGLRecoveryState;
-  /** Lost its WebGL renderer while hidden and was kept from drawing; see `releaseWebglAddon`. */
-  drawingHeld: boolean;
   visibleRepairCleanup?: () => void;
   hoveredLink: TerminalDetectedLink | null;
   sendRightClickToPrograms: boolean;
@@ -325,12 +323,19 @@ export class TerminalRendererRuntime {
     };
 
     this.restoreParkScroll(attachedEntry);
-    this.fit(attachedEntry);
-    this.fitNextFrame(attachedEntry);
+    // A hidden terminal is measured when it is shown, and before that only to size a new PTY.
+    // Measuring lays out the page, once for each terminal mounted, and a hidden split pane its
+    // split view has not sized yet gives a width the terminal then kept until it was shown.
+    if (request.visible) this.fit(attachedEntry);
+    requestAnimationFrame(() => {
+      if (attachedEntry.visible) this.fit(attachedEntry);
+    });
     fitAfterFontLoad(
       Number(attachedEntry.terminal.options.fontSize),
       String(attachedEntry.terminal.options.fontFamily),
-      () => this.fit(attachedEntry)
+      () => {
+        if (attachedEntry.visible) this.fit(attachedEntry);
+      }
     );
     this.setVisible(request.terminalId, request.visible);
   }
@@ -426,11 +431,6 @@ export class TerminalRendererRuntime {
     // only to be replaced.
     if (!entry.webglAddon) this.initWebgl(entry);
     resumeTerminalRendering(entry.terminal);
-    if (entry.drawingHeld) {
-      entry.drawingHeld = false;
-      // A new WebGL renderer sizes itself; without one the DOM renderer is still to be sized.
-      if (!entry.webglAddon) resizeTerminalRenderer(entry.terminal);
-    }
     this.restoreVisibleScroll(entry);
     // Only a pane that was hidden sizes its PTY at once. One already shown, or one that only
     // moved, as in a split, is measured mid-layout and follows its pane like a resize: sizing its
@@ -784,6 +784,7 @@ export class TerminalRendererRuntime {
     // Times lines for the links popover.
     const lineTimes = createTerminalLineTimes(terminal, { paused: () => replaying > 0 });
     terminal.open(request.container);
+    stopHiddenTerminalDrawing(terminal);
     const xtermElement = request.container.querySelector('.xterm') as HTMLElement | null;
     if (!xtermElement) {
       terminal.dispose();
@@ -856,7 +857,6 @@ export class TerminalRendererRuntime {
       webglAddon: null,
       webglLastUsed: 0,
       webglRecovery: createRecoveryState(),
-      drawingHeld: false,
       hoveredLink: null,
       sendRightClickToPrograms: false,
       programRightClick: false,
@@ -1108,10 +1108,6 @@ export class TerminalRendererRuntime {
     entry.columnResizeTimer = null;
   }
 
-  private fitNextFrame(entry: TerminalRendererEntry): void {
-    requestAnimationFrame(() => this.fit(entry));
-  }
-
   private scheduleResizeRepair(entry: TerminalRendererEntry): void {
     const host = entry.host;
     if (!host || !entry.visible || host.resizeRepairFrame !== null) return;
@@ -1257,14 +1253,12 @@ export class TerminalRendererRuntime {
    * terminal waits until shown, where a new WebGL renderer usually takes over before it has drawn.
    */
   private releaseWebglAddon(entry: TerminalRendererEntry, addon: WebglAddon): void {
-    const hidden = !entry.visible && !entry.disposed;
     try {
-      if (hidden) holdHiddenTerminalDrawing(entry.terminal, () => disposeWebglAddon(addon));
-      else disposeWebglAddon(addon);
+      if (entry.visible || entry.disposed) disposeWebglAddon(addon);
+      else holdHiddenTerminalDrawing(entry.terminal, () => disposeWebglAddon(addon));
     } catch {
       // Best-effort: the addon may be partly torn down, by a context loss or structural teardown.
     }
-    if (hidden) entry.drawingHeld = true;
   }
 
   private reclaimHiddenWebgl(requestingTerminalId: string | null): boolean {

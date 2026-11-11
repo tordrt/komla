@@ -64,7 +64,7 @@ const streamState = vi.hoisted(() => ({
 }));
 const hostState = vi.hoisted(() => ({ clear: vi.fn(), hydrate: vi.fn() }));
 const resizeState = vi.hoisted(() => ({ callbacks: [] as ResizeObserverCallback[] }));
-const renderState = vi.hoisted(() => ({ resume: vi.fn(), hold: vi.fn(), resize: vi.fn() }));
+const renderState = vi.hoisted(() => ({ resume: vi.fn(), hold: vi.fn(), stop: vi.fn() }));
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
@@ -210,7 +210,7 @@ vi.mock('../../../src/renderer/lib/terminal-host-tracker', () => ({
 vi.mock('../../../src/renderer/lib/xterm-render-resume', () => ({
   resumeTerminalRendering: renderState.resume,
   holdHiddenTerminalDrawing: renderState.hold,
-  resizeTerminalRenderer: renderState.resize,
+  stopHiddenTerminalDrawing: renderState.stop,
 }));
 vi.mock('../../../src/renderer/lib/xterm-url-links', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/renderer/lib/xterm-url-links')>()),
@@ -246,12 +246,17 @@ function makeHost(): HTMLElement {
   return host;
 }
 
-function attach(runtime: TerminalRendererRuntime, terminalId: string, host: HTMLElement): void {
+function attach(
+  runtime: TerminalRendererRuntime,
+  terminalId: string,
+  host: HTMLElement,
+  visible = true
+): void {
   runtime.attach({
     terminalId,
     container: host,
     options: { fontSize: 14, fontFamily: 'monospace' },
-    visible: true,
+    visible,
     context: { workspaceId: 'workspace-1', executionLocation: 'workspace' },
     callbacks: {
       keyHandler: () => true,
@@ -1546,38 +1551,32 @@ describe('TerminalRendererRuntime', () => {
     expect(renderState.hold).not.toHaveBeenCalled();
   });
 
-  it('draws a held terminal that is shown without a WebGL renderer to take over', () => {
+  it('keeps every terminal from drawing while it is hidden', () => {
     const runtime = new TerminalRendererRuntime();
-    attach(runtime, 'term-held', makeHost());
-    runtime.setVisible('term-held', false);
-    runtime.setWebglContextLimit(0);
-    expect(renderState.hold).toHaveBeenCalledOnce();
+    renderState.stop.mockClear();
 
-    runtime.setVisible('term-held', true);
+    attach(runtime, 'term-stopped', makeHost());
 
-    expect(xtermState.webglInstances).toHaveLength(1);
-    expect(renderState.resize).toHaveBeenCalledExactlyOnceWith(xtermState.terminals[0]);
-    expect(renderState.resume.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      renderState.resize.mock.invocationCallOrder[0]
-    );
-
-    // Shown again later, there is nothing held to draw.
-    runtime.setVisible('term-held', false);
-    runtime.setVisible('term-held', true);
-    expect(renderState.resize).toHaveBeenCalledOnce();
+    expect(renderState.stop).toHaveBeenCalledExactlyOnceWith(xtermState.terminals[0]);
   });
 
-  it('leaves a held terminal to its new WebGL renderer when shown', () => {
+  it('measures a terminal attached hidden only to size its PTY and when it is shown', async () => {
+    // Measuring lays out the page, once for each terminal mounted, and a hidden split pane its
+    // split view has not sized yet gives a width the terminal then kept until it was shown.
     const runtime = new TerminalRendererRuntime();
-    attach(runtime, 'term-held-webgl', makeHost());
-    runtime.setVisible('term-held-webgl', false);
-    runtime.setWebglContextLimit(0);
-    runtime.setWebglContextLimit();
+    xtermState.fit.mockClear();
 
-    runtime.setVisible('term-held-webgl', true);
+    attach(runtime, 'term-hidden-attach', makeHost(), false);
+    vi.runOnlyPendingTimers();
+    expect(xtermState.fit).not.toHaveBeenCalled();
 
-    expect(xtermState.webglInstances).toHaveLength(2);
-    expect(renderState.resize).not.toHaveBeenCalled();
+    // A new renderer sizes its PTY once the snapshot is in.
+    await vi.advanceTimersByTimeAsync(0);
+    vi.runOnlyPendingTimers();
+    expect(xtermState.fit).toHaveBeenCalledOnce();
+
+    runtime.setVisible('term-hidden-attach', true);
+    expect(xtermState.fit).toHaveBeenCalledTimes(2);
   });
 
   it('gives up hidden WebGL renderers at once when the context budget is lowered', () => {

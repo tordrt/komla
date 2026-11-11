@@ -16,6 +16,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '../../../src/renderer/components/ui/dialog';
+import { highlightThenOpen } from '../../../src/renderer/lib/open-workspace';
 import { closePaneBrowserTab } from '../../../src/renderer/lib/pane-surfaces';
 import { executeShortcutAction } from '../../../src/renderer/lib/shortcut-actions';
 import { useQuickLookStore } from '../../../src/renderer/stores/quick-look.store';
@@ -452,7 +453,6 @@ describe('ShortcutProvider repeated workspace navigation', () => {
 
     expect(selectWorkspace).toHaveBeenCalledTimes(1);
     expect(selectWorkspace).toHaveBeenCalledWith('two', STEP);
-    expect(workspaceState.highlightedWorkspaceId).toBeNull();
   });
 
   it('loads only the last workspace of presses that land within one frame', () => {
@@ -545,6 +545,18 @@ describe('ShortcutProvider repeated workspace navigation', () => {
 
       expect(selectWorkspace).toHaveBeenCalledTimes(1);
       expect(selectWorkspace).toHaveBeenCalledWith('remote', STEP);
+    });
+
+    it('opens it on a click made before the highlight paints, without holding the connection off', () => {
+      renderProvider();
+
+      shortcutActions.get('workspace.next')?.(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+      );
+      highlightThenOpen('two', () => void workspaceState.selectWorkspace('two'));
+      vi.runAllTimers();
+
+      expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith('two');
     });
 
     it('holds the connection off too when the key is released before the highlight paints', () => {

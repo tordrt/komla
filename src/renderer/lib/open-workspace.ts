@@ -31,6 +31,66 @@ export async function openWorkspace(
   await store.selectWorkspace(workspace.id);
 }
 
+let cancelPendingOpen: (() => void) | null = null;
+
+/**
+ * Shows the workspace's sidebar card selected at once, and runs `open` once that has painted, so
+ * the highlight never waits for the workspace view, which takes longer the more panes it has to
+ * show. A later call, from a click or next/previous, replaces an open still waiting.
+ */
+export function highlightThenOpen(workspaceId: string, open: () => void): void {
+  cancelOpenAfterHighlight();
+  useWorkspacesStore.setState({ highlightedWorkspaceId: workspaceId });
+  // A hidden window draws no frames, so waiting for one would leave it unopened until shown.
+  if (document.visibilityState === 'hidden') {
+    open();
+    return;
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const frame = requestAnimationFrame(() => {
+    timeout = setTimeout(() => {
+      cancelPendingOpen = null;
+      open();
+    }, 0);
+  });
+  cancelPendingOpen = () => {
+    cancelAnimationFrame(frame);
+    clearTimeout(timeout);
+  };
+}
+
+/** Drops the open highlightThenOpen still has waiting, if any. */
+export function cancelOpenAfterHighlight(): void {
+  cancelPendingOpen?.();
+  cancelPendingOpen = null;
+}
+
+/** Opens the workspace whose sidebar card was clicked, its card showing selected first. */
+export function openWorkspaceFromCard(workspace: Workspace, currentWindowId: string): void {
+  // One restored from the Trash or shown in another window may not open here at all.
+  if (workspace.status !== 'active' || workspace.windowId !== currentWindowId) {
+    cancelOpenAfterHighlight();
+    clearHighlight();
+    void openWorkspace(workspace, currentWindowId);
+    return;
+  }
+  highlightThenOpen(workspace.id, () => {
+    // As it is by then: it may have moved to the Trash or another window meanwhile. Opening
+    // there, or failing to, leaves this window's selection, and its card, as they were.
+    const current = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspace.id);
+    const opened = current ? openWorkspace(current, currentWindowId) : Promise.resolve();
+    void opened.finally(() => clearHighlight(workspace.id));
+  });
+}
+
+/** Stops showing a card selected ahead of its opening: `workspaceId`'s, or whichever it is. */
+function clearHighlight(workspaceId?: string): void {
+  const { highlightedWorkspaceId } = useWorkspacesStore.getState();
+  if (highlightedWorkspaceId === null) return;
+  if (workspaceId !== undefined && highlightedWorkspaceId !== workspaceId) return;
+  useWorkspacesStore.setState({ highlightedWorkspaceId: null });
+}
+
 /**
  * Shows the terminal's pane in its workspace's layout, focused and flashed. A workspace that just
  * moved to this window gets its tabs a moment later, maybe more than once, so until then, and each

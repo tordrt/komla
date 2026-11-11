@@ -237,7 +237,10 @@ export interface SelectWorkspaceOptions {
 interface WorkspacesState {
   workspaces: Workspace[];
   selectedWorkspaceId: string | null;
-  /** The workspace next/previous has stepped to, whose card shows selected ahead of its opening. */
+  /**
+   * The workspace whose sidebar card shows selected ahead of its opening: a card just clicked, or
+   * the one next/previous has stepped to. The highlight paints first, then the workspace loads.
+   */
   highlightedWorkspaceId: string | null;
   showDashboard: boolean;
   isLoading: boolean;

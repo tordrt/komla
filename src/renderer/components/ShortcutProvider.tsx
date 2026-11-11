@@ -16,6 +16,7 @@ import { resolveDefaultLaunchTarget } from '@/lib/agent-launch';
 import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
 import { closeNote, createNote } from '@/lib/notes';
 import { openFolder } from '@/lib/open-folder';
+import { cancelOpenAfterHighlight, highlightThenOpen } from '@/lib/open-workspace';
 import { closePaneBrowserTab } from '@/lib/pane-surfaces';
 import { closeFocusedPromptDraft, togglePromptDraft } from '@/lib/prompt-draft';
 import { registerShortcutAction, executeShortcutAction } from '@/lib/shortcut-actions';
@@ -124,25 +125,27 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
     () => toggleCommandCenterSearch('workspaces'),
     [toggleCommandCenterSearch]
   );
+  // The key held down while next/previous repeats, whose release opens the highlighted workspace.
   const keyboardNavigationCode = useRef<string | null>(null);
-  const cancelKeyboardNavigationCommit = useRef<(() => void) | null>(null);
 
   const clearKeyboardNavigation = useCallback(() => {
     keyboardNavigationCode.current = null;
-    cancelKeyboardNavigationCommit.current?.();
-    cancelKeyboardNavigationCommit.current = null;
     if (useWorkspacesStore.getState().highlightedWorkspaceId !== null) {
       useWorkspacesStore.setState({ highlightedWorkspaceId: null });
     }
   }, []);
 
-  useEffect(() => clearKeyboardNavigation, [clearKeyboardNavigation]);
-
-  // A click or another action selecting a workspace supersedes a pending key-repeat burst.
-  useEffect(() => {
-    if (useWorkspacesStore.getState().highlightedWorkspaceId !== null) {
+  useEffect(
+    () => () => {
+      cancelOpenAfterHighlight();
       clearKeyboardNavigation();
-    }
+    },
+    [clearKeyboardNavigation]
+  );
+
+  // A click or another action selecting a workspace supersedes a held key's burst.
+  useEffect(() => {
+    if (keyboardNavigationCode.current !== null) clearKeyboardNavigation();
   }, [selectedWorkspaceId, clearKeyboardNavigation]);
 
   // Track previous workspace for overview toggle
@@ -218,14 +221,11 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
       ) {
         return;
       }
-      // A held key has stopped on its target. A single press may be one of several: the workspace
-      // opens, and what connecting it would cost waits to see whether the next press moves on.
-      const held = keyboardNavigationCode.current !== null;
+      // A held key has stopped on its target. A single press opens on its own.
+      if (keyboardNavigationCode.current === null) return;
       const targetId = useWorkspacesStore.getState().highlightedWorkspaceId;
       clearKeyboardNavigation();
-      if (!targetId) return;
-      if (held) void selectWorkspace(targetId);
-      else void selectWorkspace(targetId, STEP_SELECTION);
+      if (targetId) void selectWorkspace(targetId);
     },
     [clearKeyboardNavigation, selectWorkspace]
   );
@@ -246,32 +246,21 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
             : currentIndex - 1;
       const targetId = runningWorkspaces[targetIndex].id;
 
-      // Only the lightweight sidebar highlight moves now. Once the OS starts repeating the key,
-      // the final target is committed on release.
-      useWorkspacesStore.setState({ highlightedWorkspaceId: targetId });
+      // Once the OS starts repeating the key, only the lightweight sidebar highlight moves, and
+      // the final target opens on release.
       if (event?.repeat) {
+        cancelOpenAfterHighlight();
         keyboardNavigationCode.current = event.code;
+        useWorkspacesStore.setState({ highlightedWorkspaceId: targetId });
         return;
       }
 
-      // A single press loads the workspace once the highlight has painted, so the highlight
-      // never waits for the workspace view. Presses before then retarget the commit.
+      // A single press may be one of several: the workspace opens, and what connecting it would
+      // cost waits to see whether the next press moves on.
       keyboardNavigationCode.current = null;
-      cancelKeyboardNavigationCommit.current?.();
-      const commit = () => {
-        cancelKeyboardNavigationCommit.current = null;
-        if (!keyboardNavigationCode.current) settleKeyboardNavigation();
-      };
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const frame = requestAnimationFrame(() => {
-        timeout = setTimeout(commit, 0);
-      });
-      cancelKeyboardNavigationCommit.current = () => {
-        cancelAnimationFrame(frame);
-        clearTimeout(timeout);
-      };
+      highlightThenOpen(targetId, () => void selectWorkspace(targetId, STEP_SELECTION));
     },
-    [runningWorkspaces, selectedWorkspaceId, settleKeyboardNavigation]
+    [runningWorkspaces, selectedWorkspaceId, selectWorkspace]
   );
 
   useEffect(() => {

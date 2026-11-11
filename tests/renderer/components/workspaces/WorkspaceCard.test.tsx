@@ -92,7 +92,13 @@ vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
         },
         () => (selector ? selector(workspacesState) : workspacesState)
       ),
-    { getState: () => workspacesState }
+    {
+      getState: () => workspacesState,
+      setState: (partial: Partial<typeof workspacesState>) => {
+        Object.assign(workspacesState, partial);
+        workspacesListeners.forEach((listener) => listener());
+      },
+    }
   ),
 }));
 
@@ -1259,7 +1265,13 @@ describe('WorkspaceCard', () => {
       markers: [
         { key: 'pr', label: 'PR #12', tone: 'info', tooltip: 'Fix login' },
         { key: 'deploy', label: 'Staging', tone: 'neutral' },
-        { key: 'progress', label: 'CI running', tone: 'info', tooltip: 'build 7 of 9', spinner: true },
+        {
+          key: 'progress',
+          label: 'CI running',
+          tone: 'info',
+          tooltip: 'build 7 of 9',
+          spinner: true,
+        },
       ],
     });
     render(<WorkspaceCard workspace={workspace} />);
@@ -1340,7 +1352,13 @@ describe('WorkspaceCard', () => {
       attention: { kind: 'turn-complete', source: 'claude-code', updatedAt: 2000 },
       markers: [
         { key: 'pr', label: 'PR #12', tone: 'info' },
-        { key: 'progress', label: 'CI running', tone: 'info', tooltip: 'build 7 of 9', spinner: true },
+        {
+          key: 'progress',
+          label: 'CI running',
+          tone: 'info',
+          tooltip: 'build 7 of 9',
+          spinner: true,
+        },
       ],
     });
     const { rerender } = render(<WorkspaceCard workspace={workspace} />);
@@ -2653,14 +2671,22 @@ describe('WorkspaceCard', () => {
 
   it('does not open the details popover when the card is clicked', async () => {
     const user = userEvent.setup();
-    const workspace = createWorktreeWorkspace({ name: 'Clicked workspace' });
+    const workspace = createWorktreeWorkspace({
+      name: 'Clicked workspace',
+      windowId: 'window-1',
+    });
+    workspacesState.workspaces = [workspace];
 
     render(<WorkspaceCard workspace={workspace} />);
     await user.click(
       screen.getByRole('button', { name: 'Workspace details for Clicked workspace' })
     );
 
-    expect(workspacesState.selectWorkspace).toHaveBeenCalledWith(workspace.id);
+    // The card shows selected first; its workspace opens once that has painted.
+    expect(workspacesState.highlightedWorkspaceId).toBe(workspace.id);
+    await vi.waitFor(() =>
+      expect(workspacesState.selectWorkspace).toHaveBeenCalledWith(workspace.id)
+    );
     expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
   });
 

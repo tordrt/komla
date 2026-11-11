@@ -59,7 +59,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { getDiffComparison } from '@/hooks/useDiffComparison';
 import { useNow } from '@/hooks/useNow';
 import { formatElapsed, formatRelativeTime } from '@/lib/format-time';
-import { openWorkspace } from '@/lib/open-workspace';
+import { openWorkspace, openWorkspaceFromCard } from '@/lib/open-workspace';
 import { keepScratchFolder } from '@/lib/scratch-workspace';
 import { waitsForNotification } from '@/lib/snooze';
 import { useSshHostDisconnected } from '@/lib/ssh-host-disconnected';
@@ -181,7 +181,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
 }: WorkspaceCardProps) {
   // Boolean selectors, so a switch re-renders only the two cards whose selection changed.
   const isSelected = useWorkspacesStore((s) => s.selectedWorkspaceId === workspace.id);
-  // While a held arrow key moves the highlight, only its target looks selected.
+  // A card just clicked, or a held arrow key's target, looks selected before its workspace opens.
   const isVisuallySelected = useWorkspacesStore((s) =>
     s.highlightedWorkspaceId
       ? s.highlightedWorkspaceId === workspace.id
@@ -395,7 +395,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
       }
       return;
     }
-    void openWorkspace(workspace, currentWindowId);
+    openWorkspaceFromCard(workspace, currentWindowId);
   };
 
   const handleContextMenu = () => {

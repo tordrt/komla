@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0]
+
+### New
+
+- **Scratch workspaces.** Start an agent for a quick one-off, like a throwaway script or trying an idea, without picking a project or making a folder first. New Scratch Workspace is in Quick create, the sidebar's Scratch group and the New Workspace dialog's project list. Its folder is cleaned up when the workspace is deleted for good, unless you choose Keep Folder.
+- **File tree actions in the header.** A new button in the file tree's header opens Expand All, Collapse All and Rollback All Changes, so you no longer have to right-click a sliver of empty space to find them.
+
+### Improvements
+
+- Switching workspaces is much snappier with many terminals open. Clicking a workspace highlights it at once, terminals in hidden workspaces no longer redraw in the background, and the occasional second-long freeze when switching is gone.
+- Opening, creating or restarting a workspace no longer briefly freezes the window when lots of workspaces are open.
+- Stepping onto an SSH workspace after a restart, sleep or dropped connection opens it right away and connects in the background, instead of leaving the previous workspace on screen.
+- Workspaces started in the background no longer resize their split panes' terminals twice the first time you open them.
+- The workspace card no longer shows a "Connecting…" spinner.
+
+### Fixes
+
+- After switching environment in the New Workspace dialog, Enter now launches the workspace instead of switching the environment back.
+- A workspace moved to the Trash is always stopped first, so the Trash no longer holds workspaces that are still running.
+- An SSH workspace that's missing from its host no longer shows "Failed to create SSH workspace" again every time it changes.
+
 ## [1.1.0]
 
 ### New

@@ -86,12 +86,16 @@ test.describe('Pull request status bar item', () => {
     const dialog = appWindow.getByRole('dialog', { name: 'Create Workspace' });
     await dialog.locator('input[placeholder$="swift-fox"]').fill('pr/status');
     await dialog.getByRole('button', { name: /^(Launch|Create)/ }).click();
+    // Empty until the worktree exists.
+    let workingDirectory = '';
     await expect
-      .poll(async () => appWindow.evaluate(async () => (await window.api.getWorkspaces()).length))
-      .toBe(1);
-    const workingDirectory = await appWindow.evaluate(
-      async () => (await window.api.getWorkspaces())[0].workingDirectory
-    );
+      .poll(async () => {
+        workingDirectory = await appWindow.evaluate(
+          async () => (await window.api.getWorkspaces())[0]?.workingDirectory ?? ''
+        );
+        return workingDirectory;
+      })
+      .not.toBe('');
 
     // Without a pull request, gh runs in the worktree and the item stays hidden.
     await expect.poll(() => fs.existsSync(CALLS_FILE), { timeout: 15_000 }).toBe(true);

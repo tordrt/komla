@@ -504,6 +504,20 @@ describe('PullRequestStatusService', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("runs no gh for a workspace whose files are still being created, and doesn't keep that answer", async () => {
+    // A workspace being created has no working directory yet, so gh would run in Komla's own.
+    workspace.workingDirectory = '';
+    workspace.provisioning = true;
+
+    await expect(service.get('ws-1')).resolves.toEqual({ kind: 'none' });
+    expect(run).not.toHaveBeenCalled();
+
+    workspace.workingDirectory = '/repo/worktrees/feature';
+    workspace.provisioning = false;
+    await expect(service.get('ws-1')).resolves.toMatchObject({ kind: 'pull-request' });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   describe('tagging workspaces from their pull requests', () => {
     beforeEach(() => {
       workspace.isWorktree = true;

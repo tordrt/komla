@@ -1,6 +1,7 @@
 import { homedir } from 'os';
 
 import { CI_WATCH_LIMIT_MS, notifiesCiFinished } from '../../shared/lib/pull-request-ci';
+import { hasWorkspaceFiles } from '../../shared/lib/workspace-provision-state';
 import {
   normalizeWorkspaceTags,
   pullRequestTagState,
@@ -281,6 +282,10 @@ export class PullRequestStatusService {
 
   get(workspaceId: string): Promise<PullRequestStatus> {
     this.forgetDeletedWorkspaces();
+    const workspace = this.dependencies.getWorkspace(workspaceId);
+    // Until its files exist it has no working directory, and gh would read the pull request of
+    // the folder Komla runs in. Not kept, so the read once they exist runs gh.
+    if (workspace && !hasWorkspaceFiles(workspace)) return Promise.resolve({ kind: 'none' });
     const recent = this.reads.get(workspaceId);
     if (recent && (recent.at === undefined || this.dependencies.now() - recent.at < FRESH_MS)) {
       return recent.status;
@@ -381,6 +386,7 @@ export class PullRequestStatusService {
     return (
       !!workspace.isWorktree &&
       workspace.status === 'active' &&
+      hasWorkspaceFiles(workspace) &&
       !this.offGitHub.has(workspace.id) &&
       (this.branches.get(workspace.id)?.hasRemote !== false ||
         workspace.pullRequestState !== undefined) &&

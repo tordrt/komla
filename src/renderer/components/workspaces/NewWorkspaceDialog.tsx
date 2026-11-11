@@ -42,6 +42,7 @@ import { menuSeparatorClass } from '@/components/ui/menu-styles';
 import { Spinner } from '@/components/ui/spinner';
 import { ActionInputDialog } from '@/components/workspaces/ActionInputDialog';
 import {
+  composerFocusTarget,
   NewWorkspaceContextBar,
   NewWorkspaceProjectPicker,
 } from '@/components/workspaces/NewWorkspaceContextBar';
@@ -2333,7 +2334,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const pickProject = (project: Project) => {
     selectProject(project.id);
     setProjectPickerOpen(false);
-    (promptTextareaRef.current ?? branchInputRef.current ?? projectTriggerRef.current)?.focus();
+    composerFocusTarget({ promptTextareaRef, branchInputRef, projectTriggerRef })?.focus();
   };
 
   const cycleReasoningLevel = () => {

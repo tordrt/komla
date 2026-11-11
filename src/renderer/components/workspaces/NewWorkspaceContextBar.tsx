@@ -53,20 +53,22 @@ function Separator() {
   );
 }
 
-// Closing a menu returns focus to the prompt; without an agent there is no
-// prompt, so to the branch name or the project.
-function refocusComposer(
-  event: Event,
-  refs: {
-    promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
-    branchInputRef: React.RefObject<HTMLInputElement | null>;
-    projectTriggerRef: React.RefObject<HTMLButtonElement | null>;
-  }
-) {
-  focusPromptOnMenuClose(
-    event,
+export interface ComposerRefs {
+  promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  branchInputRef: React.RefObject<HTMLInputElement | null>;
+  projectTriggerRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+// The prompt; without an agent there is no prompt, so the branch name or the project.
+export function composerFocusTarget(refs: ComposerRefs): HTMLElement | null {
+  return (
     refs.promptTextareaRef.current ?? refs.branchInputRef.current ?? refs.projectTriggerRef.current
   );
+}
+
+// Closing a menu returns focus to the composer.
+function refocusComposer(event: Event, refs: ComposerRefs) {
+  focusPromptOnMenuClose(event, composerFocusTarget(refs));
 }
 
 function SegmentCaret() {
@@ -265,6 +267,8 @@ export interface EnvironmentSegmentProps {
   /** Opens the add-host dialog, offered while no other environment is configured */
   onSetUpSshHost: () => void;
   onCloseAutoFocus: (event: Event) => void;
+  /** Returns focus to the composer after a click switches the environment */
+  focusComposer: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -292,8 +296,15 @@ function describeEnvironment({
 }
 
 function EnvironmentSegment(props: EnvironmentSegmentProps) {
-  const { onEnvironmentChange, sshHosts, onSetUpSshHost, onCloseAutoFocus, open, onOpenChange } =
-    props;
+  const {
+    onEnvironmentChange,
+    sshHosts,
+    onSetUpSshHost,
+    onCloseAutoFocus,
+    focusComposer,
+    open,
+    onOpenChange,
+  } = props;
   const { value, label, Icon, toneClass } = describeEnvironment(props);
   const selectLocal = () => onEnvironmentChange({ kind: 'local' });
   const selectSsh = (hostId: string) => onEnvironmentChange({ kind: 'ssh', hostId });
@@ -308,6 +319,9 @@ function EnvironmentSegment(props: EnvironmentSegmentProps) {
   const toggleOnlyEnvironment = () => {
     if (value === 'local') onlyEnvironment?.select();
     else selectLocal();
+    // Left on this button, Enter would switch back instead of launching. Deferred past the
+    // re-render, as the switch can change which composer fields there are.
+    setTimeout(focusComposer);
   };
   const switchTarget = value === 'local' ? onlyEnvironment?.name : 'Local';
   const trigger = (
@@ -567,7 +581,10 @@ export function NewWorkspaceProjectPicker({
 
 export interface NewWorkspaceContextBarProps {
   selectedProject: Project | undefined;
-  environment: Omit<EnvironmentSegmentProps, 'onCloseAutoFocus' | 'open' | 'onOpenChange'>;
+  environment: Omit<
+    EnvironmentSegmentProps,
+    'onCloseAutoFocus' | 'focusComposer' | 'open' | 'onOpenChange'
+  >;
   /** The menu a dialog shortcut opened, or the one open now */
   openMenu: NewWorkspaceMenu | null;
   onMenuOpenChange: (menu: NewWorkspaceMenu, open: boolean) => void;
@@ -633,14 +650,15 @@ export function NewWorkspaceContextBar({
   const menuOpenChange = (menu: NewWorkspaceMenu) => (open: boolean) =>
     onMenuOpenChange(menu, open);
   const selectedProjectIsDirectory = selectedProject?.kind === 'directory';
-  const refocusPrompt = (event: Event) =>
-    refocusComposer(event, { promptTextareaRef, branchInputRef, projectTriggerRef });
+  const composerRefs = { promptTextareaRef, branchInputRef, projectTriggerRef };
+  const refocusPrompt = (event: Event) => refocusComposer(event, composerRefs);
 
   return (
     <div className="flex min-w-0 items-center gap-0.5" data-new-workspace-context-bar>
       <EnvironmentSegment
         {...environment}
         onCloseAutoFocus={refocusPrompt}
+        focusComposer={() => composerFocusTarget(composerRefs)?.focus()}
         open={openMenu === 'environment'}
         onOpenChange={menuOpenChange('environment')}
       />

@@ -13,7 +13,8 @@ import {
 import { seedShortcuts } from '../../../helpers/shortcuts';
 
 import type { NewWorkspaceMenu } from '../../../../src/renderer/lib/agent-dialog-shortcuts';
-import type { Project } from '../../../../src/shared/types';
+import type { DesiredWorkspaceEnvironment } from '../../../../src/shared/lib/agent-environment';
+import type { Project, SshHost } from '../../../../src/shared/types';
 
 vi.mock('../../../../src/renderer/components/workspaces/WorkspaceBranchPicker', () => ({
   WorkspaceBranchPicker: () => null,
@@ -35,6 +36,10 @@ function ContextBar({
   onOpenFolderWorkspace = vi.fn(),
   onNewScratchWorkspace = vi.fn(),
   onSetUpSshHost = vi.fn(),
+  sshHosts = [],
+  launchTarget = 'local',
+  selectedSshHost,
+  onEnvironmentChange = vi.fn(),
 }: {
   projectList?: Project[];
   initialPickerOpen?: boolean;
@@ -44,6 +49,10 @@ function ContextBar({
   onOpenFolderWorkspace?: () => void;
   onNewScratchWorkspace?: () => void;
   onSetUpSshHost?: () => void;
+  sshHosts?: SshHost[];
+  launchTarget?: 'local' | 'ssh';
+  selectedSshHost?: SshHost;
+  onEnvironmentChange?: (environment: DesiredWorkspaceEnvironment) => void;
 }) {
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const branchInputRef = useRef<HTMLInputElement>(null);
@@ -82,10 +91,10 @@ function ContextBar({
       <NewWorkspaceContextBar
         selectedProject={selectedProject}
         environment={{
-          launchTarget: 'local',
-          onEnvironmentChange: vi.fn(),
-          sshHosts: [],
-          selectedSshHost: undefined,
+          launchTarget,
+          onEnvironmentChange,
+          sshHosts,
+          selectedSshHost,
           onSetUpSshHost,
         }}
         openMenu={openMenu}
@@ -449,6 +458,38 @@ describe('NewWorkspaceContextBar', () => {
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
     await nextTick();
     expect(branchInput).toHaveFocus();
+  });
+
+  it('returns focus to the prompt after switching the only other environment', async () => {
+    const user = userEvent.setup();
+    const onEnvironmentChange = vi.fn();
+    const host = { id: 'host-1', name: 'Build box' } as SshHost;
+    render(<ContextBar sshHosts={[host]} onEnvironmentChange={onEnvironmentChange} />);
+
+    await user.click(screen.getByRole('button', { name: 'Local' }));
+
+    expect(onEnvironmentChange).toHaveBeenCalledWith({ kind: 'ssh', hostId: 'host-1' });
+    // Enter now reaches the prompt and launches, instead of switching back.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveFocus());
+  });
+
+  it('returns focus to the prompt after switching back to Local', async () => {
+    const user = userEvent.setup();
+    const onEnvironmentChange = vi.fn();
+    const host = { id: 'host-1', name: 'Build box' } as SshHost;
+    render(
+      <ContextBar
+        sshHosts={[host]}
+        launchTarget="ssh"
+        selectedSshHost={host}
+        onEnvironmentChange={onEnvironmentChange}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Build box' }));
+
+    expect(onEnvironmentChange).toHaveBeenCalledWith({ kind: 'local' });
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveFocus());
   });
 
   it('offers SSH setup, not a sandbox, while Local is the only environment', async () => {

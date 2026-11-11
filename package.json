@@ -55,6 +55,7 @@
     "screenshots": "npx playwright test --config e2e/playwright.config.ts e2e/screenshots/",
     "screenshots:process": "node scripts/process-screenshots.mjs",
     "screenshots:landing": "npx playwright test --config e2e/playwright.config.ts e2e/screenshots/landing-page.screenshot.ts e2e/screenshots/dialogs.screenshot.ts && node scripts/process-screenshots.mjs --landing-only",
+    "screenshots:readme": "npm run build && npx playwright test --config e2e/playwright.config.ts e2e/readme/",
     "videos": "npm run build && npx playwright test --config e2e/playwright.config.ts e2e/videos/ && node scripts/render-videos.mjs",
     "demo": "npx playwright test --config e2e/playwright.config.ts --headed e2e/demos/"
   },

@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/readme/hero.webp" alt="Komla with Claude Code and Codex working side by side, a sidebar of workspaces showing which agents are working, done or waiting for input, and a new task started from the new workspace dialog" width="960" />
+  <img src="docs/readme/hero.webp" alt="Komla with Claude Code and Codex working side by side in one workspace, and a sidebar of workspaces showing which agents are working, done or waiting for input" width="960" />
 </p>
 
 Komla is a desktop app for macOS, Windows and Linux that runs AI coding agent CLIs side by side: Claude Code, Codex, OpenCode, Gemini CLI and any other agent that runs in a terminal. It is free and open source, with no account.

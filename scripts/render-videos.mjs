@@ -25,6 +25,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 
+import { TRAFFIC_LIGHTS } from './traffic-lights.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const RECORDINGS_DIR = path.join(ROOT, 'e2e', 'videos', 'output');
@@ -32,15 +34,6 @@ const RECORDINGS_DIR = path.join(ROOT, 'e2e', 'videos', 'output');
 const SITE_PUBLIC_DIR = process.env.KOMLA_SITE_PUBLIC_DIR;
 const PUBLISH_DIR = SITE_PUBLIC_DIR && path.join(path.resolve(SITE_PUBLIC_DIR), 'screenshots');
 
-// Native traffic lights are OS chrome that the screencast doesn't capture.
-// Matches window.service.ts trafficLightPosition and the 12px / 20px macOS spacing.
-const TRAFFIC_LIGHTS = {
-  x: 21,
-  y: 18,
-  gap: 20,
-  radius: 6,
-  colors: ['#ff5f57', '#febc2e', '#28c840'],
-};
 const CLICK_RIPPLE_SECONDS = 0.45;
 const KEYS_SECONDS = 1.2;
 const CURSOR_FADE_SECONDS = 0.25;

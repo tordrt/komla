@@ -1410,6 +1410,10 @@ export class Director {
 
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
+// The pixelRatio of the test under way, which its electronApp fixture sets, so that a relaunch
+// comes up at the same density.
+let pixelRatio = 1;
+
 async function launchApp(): Promise<ElectronApplication> {
   // Recording from a Komla terminal, its KOMLA_* variables, such as the notify port, would reach
   // the recorded app's own terminals, and their agents' hooks the recording machine's Komla.
@@ -1420,7 +1424,10 @@ async function launchApp(): Promise<ElectronApplication> {
     // Launch the repo as the app, as a dev run does, so the app path resolves
     // native/artifacts and SSH hosts get the companion that pushes
     // git status. Launching out/main/index.js directly would miss it.
-    args: [path.join(__dirname, '..', '..')],
+    args: [
+      ...(pixelRatio === 1 ? [] : [`--force-device-scale-factor=${pixelRatio}`]),
+      path.join(__dirname, '..', '..'),
+    ],
     env: {
       ...env,
       KOMLA_DATA_DIR: SANDBOX_DIR,
@@ -1506,6 +1513,8 @@ export async function relaunchApp(
 interface VideoFixtures {
   world: VideoWorld;
   windowSize: { width: number; height: number };
+  /** Device pixels per CSS pixel. A still wants 2; the videos' screencast is sized for 1. */
+  pixelRatio: number;
   sshHost: VideoSshHost | null;
   electronApp: ElectronApplication;
   appWindow: Page;
@@ -1515,6 +1524,7 @@ interface VideoFixtures {
 export const videoTest = base.extend<VideoFixtures>({
   world: [{ projects: [], workspaces: [] }, { option: true }],
   windowSize: [{ width: 1280, height: 736 }, { option: true }],
+  pixelRatio: [1, { option: true }],
 
   // Building and starting the SSH host takes longer than a test's default timeout.
   sshHost: [
@@ -1526,7 +1536,8 @@ export const videoTest = base.extend<VideoFixtures>({
     { timeout: 600_000 },
   ],
 
-  electronApp: async ({ sshHost: _sshHost }, provide) => {
+  electronApp: async ({ sshHost: _sshHost, pixelRatio: ratio }, provide) => {
+    pixelRatio = ratio;
     const app = await launchApp();
     await provide(app);
     await quitApp(app);

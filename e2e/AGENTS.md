@@ -43,6 +43,7 @@ The release runs the whole suite serially with `KOMLA_E2E_HIDE_WINDOWS=1` and st
 
 - `screenshots/` and `demos/` produce marketing assets consumed by the landing page via `scripts/process-screenshots.mjs`, which writes to `screenshots/` in the site's `public/` folder. The site lives outside this repo; set `KOMLA_SITE_PUBLIC_DIR` to its `public/` folder.
 - Editing them changes what's shipped on the marketing site. Regenerate with `npm run screenshots:landing` (or for another agent: `AGENT=codex npm run screenshots:landing`, also `gemini` and `opencode`).
+- `readme/hero.screenshot.ts` takes the README's hero image, `docs/readme/hero.webp`, with `npm run screenshots:readme`. It is a still of the hero video's world at twice the pixel density, so it needs the Docker SSH host and companion that video needs (see below), and it writes straight over the tracked image: look at the result before committing it. Either platform takes it. The committed one is from Linux, with that window's own controls and `Ctrl` shortcuts; on macOS the spec draws the traffic lights, and the shortcuts read ⌘. On Linux, give `xvfb-run` a screen that fits the window at 2×: `-s "-screen 0 3200x2000x24"`.
 
 ## Landing videos
 

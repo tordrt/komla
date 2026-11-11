@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSshWorkspace, createTerminal, createWorkspace } from '../../factories';
 import {
   ShortcutProvider,
-  SSH_STEP_COMMIT_DELAY_MS,
+  SSH_STEP_CONNECT_DELAY_MS,
 } from '../../../src/renderer/components/ShortcutProvider';
 import {
   Dialog,
@@ -36,7 +36,7 @@ const {
     selectedWorkspaceId: null,
     hideStopped: false,
     hiddenProjectIds: new Set<string>(),
-    keyboardNavigationWorkspaceId: null,
+    highlightedWorkspaceId: null,
     selectWorkspace: vi.fn(),
     showDashboard: false,
     displayOrderedWorkspaceIds: null,
@@ -196,7 +196,7 @@ describe('ShortcutProvider overview Escape behavior', () => {
     Object.assign(workspaceState, {
       workspaces: [remoteWorkspace],
       selectedWorkspaceId: 'remote',
-      keyboardNavigationWorkspaceId: null,
+      highlightedWorkspaceId: null,
       showDashboard: false,
       hiddenWorkspaceHostIds: new Set<string>(),
       dashboardHiddenWorkspaceHostIds: new Set<string>(),
@@ -300,6 +300,8 @@ describe('ShortcutProvider overview Escape behavior', () => {
 });
 
 describe('ShortcutProvider repeated workspace navigation', () => {
+  // How a single press selects: any connection waits for the presses to pause.
+  const STEP = { connectAfterMs: SSH_STEP_CONNECT_DELAY_MS };
   const workspaces = ['one', 'two', 'three'].map((id) =>
     createWorkspace({
       id,
@@ -322,7 +324,7 @@ describe('ShortcutProvider repeated workspace navigation', () => {
     Object.assign(workspaceState, {
       workspaces,
       selectedWorkspaceId: 'one',
-      keyboardNavigationWorkspaceId: null,
+      highlightedWorkspaceId: null,
       showDashboard: false,
       displayOrderedWorkspaceIds: ['one', 'two', 'three'],
       hiddenWorkspaceHostIds: new Set<string>(),
@@ -345,13 +347,13 @@ describe('ShortcutProvider repeated workspace navigation', () => {
     next?.(new KeyboardEvent('keydown', { key: 'ArrowDown', repeat: true }));
 
     expect(selectWorkspace).not.toHaveBeenCalled();
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBe('three');
+    expect(workspaceState.highlightedWorkspaceId).toBe('three');
 
     window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
 
     expect(selectWorkspace).toHaveBeenCalledTimes(1);
     expect(selectWorkspace).toHaveBeenCalledWith('three');
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBeNull();
+    expect(workspaceState.highlightedWorkspaceId).toBeNull();
   });
 
   it('does not commit between slow repeated keydown events', () => {
@@ -390,7 +392,7 @@ describe('ShortcutProvider repeated workspace navigation', () => {
 
     expect(selectWorkspace).toHaveBeenCalledTimes(1);
     expect(selectWorkspace).toHaveBeenCalledWith('two');
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBeNull();
+    expect(workspaceState.highlightedWorkspaceId).toBeNull();
   });
 
   it('commits when the modifier is released first, since macOS sends no keyup for the arrow', () => {
@@ -409,7 +411,7 @@ describe('ShortcutProvider repeated workspace navigation', () => {
 
     expect(selectWorkspace).toHaveBeenCalledTimes(1);
     expect(selectWorkspace).toHaveBeenCalledWith('three');
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBeNull();
+    expect(workspaceState.highlightedWorkspaceId).toBeNull();
   });
 
   it('cancels a pending preview when the active workspace is explicitly reselected', async () => {
@@ -422,10 +424,10 @@ describe('ShortcutProvider repeated workspace navigation', () => {
     shortcutActions.get('workspace.next')?.(
       new KeyboardEvent('keydown', { key: 'ArrowDown', repeat: true })
     );
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBe('two');
+    expect(workspaceState.highlightedWorkspaceId).toBe('two');
 
     selectWorkspace.mockImplementationOnce(async () => {
-      workspaceState.keyboardNavigationWorkspaceId = null;
+      workspaceState.highlightedWorkspaceId = null;
     });
     await workspaceState.selectWorkspace('one');
     window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
@@ -443,14 +445,14 @@ describe('ShortcutProvider repeated workspace navigation', () => {
 
     shortcutActions.get('workspace.next')?.(new KeyboardEvent('keydown'));
 
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBe('two');
+    expect(workspaceState.highlightedWorkspaceId).toBe('two');
     expect(selectWorkspace).not.toHaveBeenCalled();
 
     vi.runAllTimers();
 
     expect(selectWorkspace).toHaveBeenCalledTimes(1);
-    expect(selectWorkspace).toHaveBeenCalledWith('two');
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBeNull();
+    expect(selectWorkspace).toHaveBeenCalledWith('two', STEP);
+    expect(workspaceState.highlightedWorkspaceId).toBeNull();
   });
 
   it('loads only the last workspace of presses that land within one frame', () => {
@@ -466,7 +468,7 @@ describe('ShortcutProvider repeated workspace navigation', () => {
     vi.runAllTimers();
 
     expect(selectWorkspace).toHaveBeenCalledTimes(1);
-    expect(selectWorkspace).toHaveBeenCalledWith('three');
+    expect(selectWorkspace).toHaveBeenCalledWith('three', STEP);
   });
 
   it('leaves a press that turns into a held key to commit on release', () => {
@@ -510,7 +512,7 @@ describe('ShortcutProvider repeated workspace navigation', () => {
 
     shortcutActions.get('workspace.next')?.(new KeyboardEvent('keydown'));
 
-    expect(workspaceState.keyboardNavigationWorkspaceId).toBe('remote');
+    expect(workspaceState.highlightedWorkspaceId).toBe('remote');
   });
 
   describe('onto an SSH workspace that selecting connects', () => {
@@ -528,36 +530,52 @@ describe('ShortcutProvider repeated workspace navigation', () => {
       workspaceState.displayOrderedWorkspaceIds = ['one', 'remote', 'two'];
     });
 
-    it('connects only once presses stop, even after the key is released', () => {
+    it('opens it once the highlight has painted, leaving the connection to wait for a pause', () => {
+      renderProvider();
+
+      shortcutActions.get('workspace.next')?.(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
+      );
+
+      expect(workspaceState.highlightedWorkspaceId).toBe('remote');
+      expect(selectWorkspace).not.toHaveBeenCalled();
+
+      // A frame and a task, well short of the pause the connection waits for.
+      vi.advanceTimersByTime(50);
+
+      expect(selectWorkspace).toHaveBeenCalledTimes(1);
+      expect(selectWorkspace).toHaveBeenCalledWith('remote', STEP);
+    });
+
+    it('holds the connection off too when the key is released before the highlight paints', () => {
       renderProvider();
 
       shortcutActions.get('workspace.next')?.(
         new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
       );
       window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown' }));
-      vi.advanceTimersByTime(SSH_STEP_COMMIT_DELAY_MS - 1);
-
-      expect(workspaceState.keyboardNavigationWorkspaceId).toBe('remote');
-      expect(selectWorkspace).not.toHaveBeenCalled();
-
-      vi.advanceTimersByTime(1);
-
-      expect(selectWorkspace).toHaveBeenCalledTimes(1);
-      expect(selectWorkspace).toHaveBeenCalledWith('remote');
-    });
-
-    it('never connects to one it only steps past', () => {
-      renderProvider();
-      const next = shortcutActions.get('workspace.next');
-
-      next?.(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' }));
-      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown' }));
-      vi.advanceTimersByTime(SSH_STEP_COMMIT_DELAY_MS / 2);
-      next?.(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' }));
       vi.runAllTimers();
 
       expect(selectWorkspace).toHaveBeenCalledTimes(1);
-      expect(selectWorkspace).toHaveBeenCalledWith('two');
+      expect(selectWorkspace).toHaveBeenCalledWith('remote', STEP);
+    });
+
+    it('connects at once when a held key is released on it', () => {
+      renderProvider();
+      const next = shortcutActions.get('workspace.next');
+
+      // Round the three of them and back onto it.
+      const repeat = { key: 'ArrowDown', code: 'ArrowDown', repeat: true };
+      next?.(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' }));
+      for (let i = 0; i < 3; i++) next?.(new KeyboardEvent('keydown', repeat));
+      vi.runAllTimers();
+      expect(selectWorkspace).not.toHaveBeenCalled();
+      expect(workspaceState.highlightedWorkspaceId).toBe('remote');
+
+      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown' }));
+
+      expect(selectWorkspace).toHaveBeenCalledTimes(1);
+      expect(selectWorkspace).toHaveBeenCalledWith('remote');
     });
   });
 });
@@ -700,7 +718,7 @@ describe('ShortcutProvider jump to the next workspace needing input', () => {
     });
     Object.assign(workspaceState, {
       selectedWorkspaceId: 'one',
-      keyboardNavigationWorkspaceId: null,
+      highlightedWorkspaceId: null,
       showDashboard: false,
       hideStopped: false,
       hiddenProjectIds: new Set<string>(),

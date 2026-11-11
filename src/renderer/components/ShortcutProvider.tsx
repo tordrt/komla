@@ -34,17 +34,19 @@ import { useToastStore } from '@/stores/toast.store';
 import { useVoiceStore } from '@/stores/voice.store';
 import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
-import { canStop, isSshWorkspace, probesOnSelect, showsRunning, Workspace } from '@/types';
+import { canStop, showsRunning, Workspace } from '@/types';
 
 import { isPaneSurfaceId } from '../../shared/lib/pane-surface-id';
 
 const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Alt', 'Shift']);
 
 /**
- * How long next/previous waits for another press before selecting an SSH workspace that selecting
- * connects to its host, so a workspace only stepped past opens no connection.
+ * How long an SSH workspace that next/previous stepped onto stays open before it connects to its
+ * host, so a workspace only stepped past opens no connection. It opens at once either way, its
+ * panes showing that they are connecting.
  */
-export const SSH_STEP_COMMIT_DELAY_MS = 300;
+export const SSH_STEP_CONNECT_DELAY_MS = 300;
+const STEP_SELECTION = { connectAfterMs: SSH_STEP_CONNECT_DELAY_MS };
 
 /** Return the preferred workspace to navigate to, or null if none show as running. */
 function findRunningWorkspace(preferredId: string | null, workspaces: Workspace[]): string | null {
@@ -124,15 +126,13 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
   );
   const keyboardNavigationCode = useRef<string | null>(null);
   const cancelKeyboardNavigationCommit = useRef<(() => void) | null>(null);
-  const keyboardNavigationWaitsForPause = useRef(false);
 
   const clearKeyboardNavigation = useCallback(() => {
     keyboardNavigationCode.current = null;
-    keyboardNavigationWaitsForPause.current = false;
     cancelKeyboardNavigationCommit.current?.();
     cancelKeyboardNavigationCommit.current = null;
-    if (useWorkspacesStore.getState().keyboardNavigationWorkspaceId !== null) {
-      useWorkspacesStore.setState({ keyboardNavigationWorkspaceId: null });
+    if (useWorkspacesStore.getState().highlightedWorkspaceId !== null) {
+      useWorkspacesStore.setState({ highlightedWorkspaceId: null });
     }
   }, []);
 
@@ -140,7 +140,7 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
 
   // A click or another action selecting a workspace supersedes a pending key-repeat burst.
   useEffect(() => {
-    if (useWorkspacesStore.getState().keyboardNavigationWorkspaceId !== null) {
+    if (useWorkspacesStore.getState().highlightedWorkspaceId !== null) {
       clearKeyboardNavigation();
     }
   }, [selectedWorkspaceId, clearKeyboardNavigation]);
@@ -218,13 +218,14 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
       ) {
         return;
       }
-      // A single press onto an SSH workspace that would connect commits on its timer, not on release.
-      if (event && !keyboardNavigationCode.current && keyboardNavigationWaitsForPause.current) {
-        return;
-      }
-      const targetId = useWorkspacesStore.getState().keyboardNavigationWorkspaceId;
+      // A held key has stopped on its target. A single press may be one of several: the workspace
+      // opens, and what connecting it would cost waits to see whether the next press moves on.
+      const held = keyboardNavigationCode.current !== null;
+      const targetId = useWorkspacesStore.getState().highlightedWorkspaceId;
       clearKeyboardNavigation();
-      if (targetId) void selectWorkspace(targetId);
+      if (!targetId) return;
+      if (held) void selectWorkspace(targetId);
+      else void selectWorkspace(targetId, STEP_SELECTION);
     },
     [clearKeyboardNavigation, selectWorkspace]
   );
@@ -233,8 +234,7 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
     (direction: 1 | -1, event?: KeyboardEvent) => {
       if (runningWorkspaces.length === 0) return;
 
-      const currentId =
-        useWorkspacesStore.getState().keyboardNavigationWorkspaceId ?? selectedWorkspaceId;
+      const currentId = useWorkspacesStore.getState().highlightedWorkspaceId ?? selectedWorkspaceId;
       const currentIndex = runningWorkspaces.findIndex((workspace) => workspace.id === currentId);
       const targetIndex =
         direction === 1
@@ -244,41 +244,30 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
           : currentIndex <= 0
             ? runningWorkspaces.length - 1
             : currentIndex - 1;
-      const target = runningWorkspaces[targetIndex];
-      const targetId = target.id;
+      const targetId = runningWorkspaces[targetIndex].id;
 
       // Only the lightweight sidebar highlight moves now. Once the OS starts repeating the key,
       // the final target is committed on release.
-      useWorkspacesStore.setState({ keyboardNavigationWorkspaceId: targetId });
+      useWorkspacesStore.setState({ highlightedWorkspaceId: targetId });
       if (event?.repeat) {
         keyboardNavigationCode.current = event.code;
         return;
       }
 
       // A single press loads the workspace once the highlight has painted, so the highlight
-      // never waits for the workspace view. Presses before then retarget the commit. Selecting
-      // an SSH workspace that isn't attached connects to its host, so that waits for presses
-      // to stop.
+      // never waits for the workspace view. Presses before then retarget the commit.
       keyboardNavigationCode.current = null;
       cancelKeyboardNavigationCommit.current?.();
-      const waitsForPause = isSshWorkspace(target) && probesOnSelect(target);
-      keyboardNavigationWaitsForPause.current = waitsForPause;
       const commit = () => {
         cancelKeyboardNavigationCommit.current = null;
-        keyboardNavigationWaitsForPause.current = false;
         if (!keyboardNavigationCode.current) settleKeyboardNavigation();
       };
       let timeout: ReturnType<typeof setTimeout> | undefined;
-      let frame: number | undefined;
-      if (waitsForPause) {
-        timeout = setTimeout(commit, SSH_STEP_COMMIT_DELAY_MS);
-      } else {
-        frame = requestAnimationFrame(() => {
-          timeout = setTimeout(commit, 0);
-        });
-      }
+      const frame = requestAnimationFrame(() => {
+        timeout = setTimeout(commit, 0);
+      });
       cancelKeyboardNavigationCommit.current = () => {
-        if (frame !== undefined) cancelAnimationFrame(frame);
+        cancelAnimationFrame(frame);
         clearTimeout(timeout);
       };
     },

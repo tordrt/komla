@@ -64,7 +64,7 @@ import { useWindowStore } from './window.store';
 import { useWorktreeEventsStore } from './worktree-events.store';
 
 import type { WorkspaceGrouping } from '../../shared/lib/workspace-grouping';
-import type { WorkspaceTrashRequest } from '../../shared/types/workspace';
+import type { SshWorkspaceBackend, WorkspaceTrashRequest } from '../../shared/types/workspace';
 import type {
   ActionSshExecutionLocation,
   Workspace,
@@ -98,6 +98,8 @@ interface PendingStop {
 const pendingStops = new Map<string, PendingStop>();
 // Counts calls to selectWorkspace, so one waiting on a stop can tell the user opened another since.
 let selectRequests = 0;
+// SSH workspaces opened with their connection held off, until it runs or is dropped.
+const heldSshConnects = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** A workspace as it is once stopped: no terminal or pane keeps it running. */
 function shownStopped(workspace: Workspace, stoppedAt: number): Workspace {
@@ -119,6 +121,8 @@ export function _resetPendingDeletions(): void {
   for (const pending of pendingStops.values()) pending.settle(false);
   pendingStops.clear();
   trashCleanups = Promise.resolve();
+  for (const timer of heldSshConnects.values()) clearTimeout(timer);
+  heldSshConnects.clear();
 }
 
 /** Main's workspaces as this window shows them while deletions and moves to the Trash finish. */
@@ -221,10 +225,20 @@ function prefetchWorkspaceFileList(workspace: Workspace): void {
   fetchFileStatusesIfNeeded(workingDirectory).catch(() => {});
 }
 
+export interface SelectWorkspaceOptions {
+  /**
+   * Holds off connecting an SSH workspace's terminals to its host for this long, and drops it
+   * once another workspace opens. The workspace opens at once regardless, its panes showing that
+   * they are connecting, and selecting it again without this option connects it at once.
+   */
+  connectAfterMs?: number;
+}
+
 interface WorkspacesState {
   workspaces: Workspace[];
   selectedWorkspaceId: string | null;
-  keyboardNavigationWorkspaceId: string | null;
+  /** The workspace next/previous has stepped to, whose card shows selected ahead of its opening. */
+  highlightedWorkspaceId: string | null;
   showDashboard: boolean;
   isLoading: boolean;
   hasLoaded: boolean;
@@ -355,7 +369,7 @@ interface WorkspacesState {
   setDefaultAction: (workspaceId: string, actionId: string) => void;
   /** Makes an Action run from a terminal's right-click menu the one that menu repeats. */
   setPaneDefaultAction: (workspaceId: string, actionId: string) => void;
-  selectWorkspace: (workspaceId: string | null) => Promise<void>;
+  selectWorkspace: (workspaceId: string | null, options?: SelectWorkspaceOptions) => Promise<void>;
   setNeedsAttention: (workspaceId: string, value: boolean) => void;
   /**
    * Shows attention a Terminal raised, and what its workspace's card shows by Komla's precedence.
@@ -951,11 +965,124 @@ async function reconnectSelectedSshWorkspace(
   try {
     await get().reconnectAllSshTerminals(workspace.id);
   } finally {
-    set((state) => {
-      const reconnectingSshWorkspaceIds = new Set(state.reconnectingSshWorkspaceIds);
-      reconnectingSshWorkspaceIds.delete(workspace.id);
-      return { reconnectingSshWorkspaceIds };
-    });
+    stopShowingSshConnecting(set, workspace.id);
+  }
+}
+
+function stopShowingSshConnecting(set: WorkspacesSet, workspaceId: string): void {
+  set((state) => {
+    const reconnectingSshWorkspaceIds = new Set(state.reconnectingSshWorkspaceIds);
+    reconnectingSshWorkspaceIds.delete(workspaceId);
+    return { reconnectingSshWorkspaceIds };
+  });
+}
+
+/** Drops the held connects of every SSH workspace but `keep`, which a selection moves away from. */
+function dropHeldSshConnects(set: WorkspacesSet, keep: string | null): void {
+  for (const [workspaceId, timer] of heldSshConnects) {
+    if (workspaceId === keep) continue;
+    clearTimeout(timer);
+    heldSshConnects.delete(workspaceId);
+    stopShowingSshConnecting(set, workspaceId);
+  }
+}
+
+/**
+ * Whether selecting the SSH workspace connects to its host: not while its terminals are attached,
+ * nor on a host the user disconnected from, whose panes offer to connect instead.
+ */
+function connectsOnSelect(workspace: Workspace & { backend: SshWorkspaceBackend }): boolean {
+  return (
+    !(isRunningHere(workspace) && !probesOnSelect(workspace)) &&
+    !isSshHostDisconnected(workspace.backend.hostId)
+  );
+}
+
+/**
+ * Connects an SSH workspace whose connection selecting it held off, if it is still the open one
+ * and still needs it: the user may have disconnected from its host, a pane reconnected it, or a
+ * held next/previous key may be moving on past it.
+ */
+async function connectHeldSshWorkspace(
+  workspaceId: string,
+  set: WorkspacesSet,
+  get: WorkspacesGet
+): Promise<void> {
+  const { selectedWorkspaceId, highlightedWorkspaceId, showDashboard, workspaces } = get();
+  const workspace = workspaces.find((item) => item.id === workspaceId);
+  if (
+    selectedWorkspaceId !== workspaceId ||
+    showDashboard ||
+    (highlightedWorkspaceId !== null && highlightedWorkspaceId !== workspaceId) ||
+    !workspace ||
+    !isSshWorkspace(workspace) ||
+    !connectsOnSelect(workspace)
+  ) {
+    stopShowingSshConnecting(set, workspaceId);
+    return;
+  }
+  await connectSelectedSshWorkspace(workspaceId, set, get);
+}
+
+/** Connects the SSH workspace just selected to its host, as reconnecting or starting it needs. */
+async function connectSelectedSshWorkspace(
+  workspaceId: string,
+  set: WorkspacesSet,
+  get: WorkspacesGet
+): Promise<void> {
+  try {
+    let sshHostsState = useSshHostsStore.getState();
+    if (!sshHostsState.hasLoaded) {
+      await sshHostsState.loadHosts();
+      const selectionState = get();
+      if (selectionState.selectedWorkspaceId !== workspaceId || selectionState.showDashboard) {
+        return;
+      }
+      sshHostsState = useSshHostsStore.getState();
+      if (!sshHostsState.hasLoaded) {
+        const reason = sshHostsState.error ?? 'Could not load SSH hosts';
+        const name = get().workspaces.find((item) => item.id === workspaceId)?.name ?? workspaceId;
+        reportFailure(
+          set,
+          `Failed to open workspace "${name}": ${stripErrorPrefix(new Error(reason))}`
+        );
+        return;
+      }
+    }
+    const currentWorkspace = get().workspaces.find((item) => item.id === workspaceId);
+    if (!currentWorkspace || !isSshWorkspace(currentWorkspace)) return;
+
+    const configuredHostExists = sshHostsState.hosts.some(
+      (host) => host.id === currentWorkspace.backend.hostId
+    );
+    if (!configuredHostExists) {
+      try {
+        const recoveredWorkspace = await window.api.recoverSshSessions(workspaceId);
+        if (recoveredWorkspace) {
+          set((state) => ({
+            workspaces: state.workspaces.map((item) =>
+              item.id === workspaceId ? recoveredWorkspace : item
+            ),
+          }));
+        }
+      } catch (error) {
+        reportFailure(
+          set,
+          `Failed to open workspace "${currentWorkspace.name}": ${stripErrorPrefix(error as Error)}`
+        );
+      }
+      return;
+    }
+
+    if (probesOnSelect(currentWorkspace)) {
+      await get().reconnectAllSshTerminals(workspaceId);
+      return;
+    }
+    if (!isRunningHere(currentWorkspace) && hasWorkspaceFiles(currentWorkspace)) {
+      await restartStoppedWorkspace(workspaceId, set, get);
+    }
+  } finally {
+    stopShowingSshConnecting(set, workspaceId);
   }
 }
 
@@ -1120,7 +1247,7 @@ function shareUnchangedWorkspaces(
 const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   workspaces: [],
   selectedWorkspaceId: null,
-  keyboardNavigationWorkspaceId: null,
+  highlightedWorkspaceId: null,
   showDashboard: false,
   isLoading: false,
   hasLoaded: false,
@@ -1752,12 +1879,13 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     }));
   },
 
-  selectWorkspace: async (workspaceId) => {
+  selectWorkspace: async (workspaceId, options) => {
     const request = ++selectRequests;
+    dropHeldSshConnects(set, workspaceId);
     restoreDeferredAttentionClear(set);
     clearTimeout(pendingUnreadClear);
-    if (get().keyboardNavigationWorkspaceId !== null) {
-      set({ keyboardNavigationWorkspaceId: null });
+    if (get().highlightedWorkspaceId !== null) {
+      set({ highlightedWorkspaceId: null });
     }
 
     if (!workspaceId) {
@@ -1789,7 +1917,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
         selectedNow === selectedBefore &&
         dashboardNow === dashboardBefore
       ) {
-        await get().selectWorkspace(workspaceId);
+        await get().selectWorkspace(workspaceId, options);
       }
       return;
     }
@@ -1832,11 +1960,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       // A live SSH PTY is already attached to its managed tmux session. Switching
       // back to it is only a renderer visibility change; probing the host would
       // add a connection overlay and an unnecessary tmux redraw to every switch.
-      // A host the user disconnected from is left alone: its panes offer to connect.
-      if (
-        (isRunningHere(workspace) && !probesOnSelect(workspace)) ||
-        isSshHostDisconnected(workspace.backend.hostId)
-      ) {
+      if (!connectsOnSelect(workspace)) {
         set((state) => ({
           workspaces: clearAttentionForSelected(state.workspaces, workspaceId),
           selectedWorkspaceId: workspaceId,
@@ -1845,7 +1969,15 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
         return;
       }
 
-      const reconnectAlreadyInProgress = state.reconnectingSshWorkspaceIds.has(workspaceId);
+      // Selecting it again without a hold connects a held one now.
+      const held = heldSshConnects.get(workspaceId);
+      const connectsNow = held !== undefined && !options?.connectAfterMs;
+      if (connectsNow) {
+        clearTimeout(held);
+        heldSshConnects.delete(workspaceId);
+      }
+      const reconnectAlreadyInProgress =
+        !connectsNow && state.reconnectingSshWorkspaceIds.has(workspaceId);
       // Make the workspace visibly selected before launching its saved SSH
       // attachments. Restored remote workspaces remain dormant until now.
       set((state) => ({
@@ -1857,63 +1989,17 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
       if (reconnectAlreadyInProgress) return;
 
-      try {
-        let sshHostsState = useSshHostsStore.getState();
-        if (!sshHostsState.hasLoaded) {
-          await sshHostsState.loadHosts();
-          const selectionState = get();
-          if (selectionState.selectedWorkspaceId !== workspaceId || selectionState.showDashboard) {
-            return;
-          }
-          sshHostsState = useSshHostsStore.getState();
-          if (!sshHostsState.hasLoaded) {
-            const reason = sshHostsState.error ?? 'Could not load SSH hosts';
-            reportFailure(
-              set,
-              `Failed to open workspace "${workspace.name}": ${stripErrorPrefix(new Error(reason))}`
-            );
-            return;
-          }
-        }
-        const currentWorkspace = get().workspaces.find((item) => item.id === workspaceId);
-        if (!currentWorkspace || !isSshWorkspace(currentWorkspace)) return;
-
-        const configuredHostExists = sshHostsState.hosts.some(
-          (host) => host.id === currentWorkspace.backend.hostId
+      if (options?.connectAfterMs) {
+        heldSshConnects.set(
+          workspaceId,
+          setTimeout(() => {
+            heldSshConnects.delete(workspaceId);
+            void connectHeldSshWorkspace(workspaceId, set, get);
+          }, options.connectAfterMs)
         );
-        if (!configuredHostExists) {
-          try {
-            const recoveredWorkspace = await window.api.recoverSshSessions(workspaceId);
-            if (recoveredWorkspace) {
-              set((state) => ({
-                workspaces: state.workspaces.map((item) =>
-                  item.id === workspaceId ? recoveredWorkspace : item
-                ),
-              }));
-            }
-          } catch (error) {
-            reportFailure(
-              set,
-              `Failed to open workspace "${currentWorkspace.name}": ${stripErrorPrefix(error as Error)}`
-            );
-          }
-          return;
-        }
-
-        if (probesOnSelect(currentWorkspace)) {
-          await get().reconnectAllSshTerminals(workspaceId);
-          return;
-        }
-        if (!isRunningHere(currentWorkspace) && hasWorkspaceFiles(currentWorkspace)) {
-          await restartStoppedWorkspace(workspaceId, set, get);
-        }
-      } finally {
-        set((state) => {
-          const reconnectingSshWorkspaceIds = new Set(state.reconnectingSshWorkspaceIds);
-          reconnectingSshWorkspaceIds.delete(workspaceId);
-          return { reconnectingSshWorkspaceIds };
-        });
+        return;
       }
+      await connectSelectedSshWorkspace(workspaceId, set, get);
       return;
     }
 

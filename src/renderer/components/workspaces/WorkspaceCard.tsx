@@ -183,8 +183,8 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const isSelected = useWorkspacesStore((s) => s.selectedWorkspaceId === workspace.id);
   // While a held arrow key moves the highlight, only its target looks selected.
   const isVisuallySelected = useWorkspacesStore((s) =>
-    s.keyboardNavigationWorkspaceId
-      ? s.keyboardNavigationWorkspaceId === workspace.id
+    s.highlightedWorkspaceId
+      ? s.highlightedWorkspaceId === workspace.id
       : s.selectedWorkspaceId === workspace.id
   );
   // How many workspaces the launch that made this one created, while it can be undone.

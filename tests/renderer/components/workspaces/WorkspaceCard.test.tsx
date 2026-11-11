@@ -56,7 +56,7 @@ vi.mock('../../../../src/renderer/stores/config.store', () => ({
 const workspacesState = {
   workspaces: [] as Workspace[],
   selectedWorkspaceId: null as string | null,
-  keyboardNavigationWorkspaceId: null as string | null,
+  highlightedWorkspaceId: null as string | null,
   selectWorkspace: vi.fn(),
   stopWorkspace: vi.fn(),
   restartWorkspace: vi.fn(),
@@ -432,7 +432,7 @@ describe('WorkspaceCard', () => {
     configState.config.showAgentSpinner = true;
     configState.config.statusBarHiddenItems = [];
     workspacesState.selectedWorkspaceId = null;
-    workspacesState.keyboardNavigationWorkspaceId = null;
+    workspacesState.highlightedWorkspaceId = null;
     workspacesState.selectedWorkspaceIds = new Set<string>();
     workspacesState.reconnectingSshWorkspaceIds = new Set<string>();
     fileViewerState.inlineFilePreviewByWorkspace = {};
@@ -483,7 +483,7 @@ describe('WorkspaceCard', () => {
     expect([...renders.keys()].sort()).toEqual([first.id, second.id].sort());
 
     // Holding the shortcut moves only the highlight.
-    switchTo(() => (workspacesState.keyboardNavigationWorkspaceId = third.id));
+    switchTo(() => (workspacesState.highlightedWorkspaceId = third.id));
     expect([...renders.keys()].sort()).toEqual([second.id, third.id].sort());
   });
 
@@ -2906,7 +2906,7 @@ describe('WorkspaceCard launch Undo', () => {
     vi.useFakeTimers();
     observed.clear();
     workspacesState.selectedWorkspaceId = null;
-    workspacesState.keyboardNavigationWorkspaceId = null;
+    workspacesState.highlightedWorkspaceId = null;
     workspacesState.selectedWorkspaceIds = new Set<string>();
     Element.prototype.scrollIntoView = vi.fn();
     window.api = {

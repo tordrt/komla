@@ -2519,6 +2519,142 @@ describe('workspaces.store', () => {
     expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(false);
   });
 
+  describe('an SSH workspace selected with its connection held off', () => {
+    function setUp() {
+      vi.useFakeTimers();
+      const workspace = createWorkspace({
+        id: 'ssh-ws',
+        backend: {
+          kind: 'ssh' as const,
+          hostId: 'ssh-dev',
+          remoteDirectory: '/home/dev/worktree',
+          remoteRepoPath: '/home/dev/repo.git',
+          remoteProjectRoot: '/home/dev',
+          gitUrl: 'git@example.com:repo.git',
+          projectName: 'Repo',
+        },
+        terminals: [
+          createTerminal({ id: 'term-remote', status: 'stopped', remoteSessionResumable: true }),
+        ],
+      });
+      const other = createWorkspace({ id: 'ws-local' });
+      const api = createApiMock({
+        reconnectSshTerminal: vi.fn().mockResolvedValue(undefined),
+        getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useSshHostsStore.setState({
+        hosts: [{ id: 'ssh-dev', name: 'Devbox', hostname: 'dev.example.com' }],
+        hasLoaded: true,
+      });
+      useWorkspacesStore.setState({ workspaces: [workspace, other], showDashboard: true });
+      return api;
+    }
+    const select = (workspaceId: string) =>
+      useWorkspacesStore.getState().selectWorkspace(workspaceId, { connectAfterMs: 300 });
+
+    it('opens at once, showing it as connecting, and connects once it has stayed open', async () => {
+      const api = setUp();
+
+      const selection = select('ssh-ws');
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ssh-ws');
+      expect(useWorkspacesStore.getState().showDashboard).toBe(false);
+      expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(299);
+      expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await selection;
+      expect(api.reconnectSshTerminal).toHaveBeenCalledWith('term-remote', undefined, undefined);
+      expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(false);
+    });
+
+    it('never connects when another workspace is open by then', async () => {
+      const api = setUp();
+
+      const selection = select('ssh-ws');
+      await vi.advanceTimersByTimeAsync(100);
+      await select('ws-local');
+      await vi.advanceTimersByTimeAsync(300);
+      await selection;
+
+      expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ws-local');
+      expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(false);
+    });
+
+    it('connects when it is open again by then', async () => {
+      const api = setUp();
+
+      const selection = select('ssh-ws');
+      await vi.advanceTimersByTimeAsync(100);
+      await select('ws-local');
+      await select('ssh-ws');
+      await vi.advanceTimersByTimeAsync(299);
+      expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await selection;
+
+      expect(api.reconnectSshTerminal).toHaveBeenCalledOnce();
+    });
+
+    it('returns as soon as it is open, without waiting for the connection', async () => {
+      setUp();
+      let settled = false;
+
+      void select('ssh-ws').then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(settled).toBe(true);
+    });
+
+    it('connects at once when selected again without the hold', async () => {
+      const api = setUp();
+
+      await select('ssh-ws');
+      await vi.advanceTimersByTimeAsync(50);
+      await useWorkspacesStore.getState().selectWorkspace('ssh-ws');
+
+      expect(api.reconnectSshTerminal).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(300);
+      expect(api.reconnectSshTerminal).toHaveBeenCalledOnce();
+      expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(false);
+    });
+
+    it('never connects while a held next/previous key moves the highlight on past it', async () => {
+      const api = setUp();
+
+      await select('ssh-ws');
+      useWorkspacesStore.setState({ highlightedWorkspaceId: 'ws-local' });
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+      expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(false);
+    });
+
+    it('never connects to a host the user disconnected from meanwhile', async () => {
+      const api = setUp();
+
+      await select('ssh-ws');
+      await vi.advanceTimersByTimeAsync(100);
+      const config = useConfigStore.getState().config;
+      useConfigStore.setState({
+        config: { ...config, disconnectedSshHostIds: ['ssh-dev'] } as typeof config,
+      });
+      try {
+        await vi.advanceTimersByTimeAsync(300);
+      } finally {
+        useConfigStore.setState({ config });
+      }
+
+      expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ssh-ws');
+      expect(useWorkspacesStore.getState().reconnectingSshWorkspaceIds.has('ssh-ws')).toBe(false);
+    });
+  });
+
   it('reconnects rather than restarts a tab that ended here once a sync finds it running on its host', async () => {
     const workspace = createWorkspace({
       id: 'ssh-ws',
@@ -3843,12 +3979,12 @@ describe('workspaces.store', () => {
       useWorkspacesStore.setState({
         workspaces: [ws],
         selectedWorkspaceId: 'ws-1',
-        keyboardNavigationWorkspaceId: 'ws-2',
+        highlightedWorkspaceId: 'ws-2',
       });
 
       await useWorkspacesStore.getState().selectWorkspace('ws-1');
 
-      expect(useWorkspacesStore.getState().keyboardNavigationWorkspaceId).toBeNull();
+      expect(useWorkspacesStore.getState().highlightedWorkspaceId).toBeNull();
     });
   });
 

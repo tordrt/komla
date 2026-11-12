@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
 
 import { mockElectron } from "../../mocks/electron";
+import { pinPlatform } from "../../helpers/platform";
 import type { SshWorkspaceBackend, Workspace } from "../../../src/shared/types";
 import { komlaSshRemoteDataPort } from "../../../src/shared/types/ssh";
 import { sshWorkspaceDiff } from "../../../src/main/services/workspace-git/ssh-diff";
@@ -1142,6 +1143,87 @@ describe("sshWorkspaceService against a real tmux", () => {
       }
     },
   );
+
+  // tmux refuses a command over about 16 KB ("command too long"), and a brief an agent writes
+  // for another agent runs to several.
+  it.skipIf(spawnSync("tmux", ["-V"]).status !== 0).each([
+    { label: "", sentence: "Do not stop until it is done, and say what you changed. " },
+    // Each layer of quoting grows an apostrophe several times over.
+    {
+      label: " with apostrophes",
+      sentence: "Don't stop until the work is done, and say what you changed. ",
+    },
+  ])(
+    "starts an agent on a prompt of several kilobytes$label",
+    async ({ sentence }) => {
+      const { sshWorkspaceService } =
+        await import("../../../src/main/services/ssh-workspace.service");
+      const root = mkdtempSync(join(tmpdir(), "komla-tmux-long-"));
+      const capturePath = join(root, "prompt.txt");
+      const { TMUX: _tmux, TMUX_PANE: _pane, ...env } = process.env;
+      const tmuxEnv = {
+        ...env,
+        TMUX_TMPDIR: root,
+        PATH: `${root}:${process.env.PATH ?? ""}`,
+        SHELL: "/bin/sh",
+      };
+      const host = {
+        id: "ssh-tmux-long",
+        name: "tmux long",
+        hostname: "tmux.example.com",
+      };
+      sshHosts.push(host as (typeof sshHosts)[number]);
+      writeFileSync(
+        join(root, "ssh"),
+        [
+          "#!/bin/sh",
+          "last=",
+          'for argument do last="$argument"; done',
+          'case " $* " in *" -O check "*) exit 1 ;; esac',
+          'exec /bin/sh -c "$last"',
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      const prompt = sentence.repeat(Math.ceil(7_000 / sentence.length)).trim();
+
+      try {
+        const launch = sshWorkspaceService.buildTerminalLaunchCommand(
+          {
+            kind: "ssh",
+            hostId: host.id,
+            remoteDirectory: root,
+            remoteRepoPath: join(root, "repo.git"),
+            remoteProjectRoot: join(root, "projects", "repo"),
+            gitUrl: "git@example.com:repo.git",
+          },
+          `printf %s '${prompt.replaceAll("'", "'\\''")}' > '${capturePath}.tmp' && mv '${capturePath}.tmp' '${capturePath}'`,
+          "term-long-prompt",
+          "ws-long-prompt",
+          "start",
+        );
+        const result = spawnSync("/bin/sh", ["-c", launch.command], {
+          env: tmuxEnv,
+          encoding: "utf8",
+        });
+
+        expect(result.error, String(result.error)).toBeUndefined();
+        expect(result.stderr).not.toContain("command too long");
+        await vi.waitFor(() => expect(existsSync(capturePath)).toBe(true), {
+          timeout: 5_000,
+        });
+        expect(readFileSync(capturePath, "utf8")).toBe(prompt);
+        // The session read its command from a file only the user can open, and removed it.
+        const launchFiles = join(root, "terminal-launch");
+        expect(statSync(launchFiles).mode & 0o777).toBe(0o700);
+        expect(readdirSync(launchFiles)).toEqual([]);
+      } finally {
+        sshHosts.splice(sshHosts.indexOf(host as (typeof sshHosts)[number]), 1);
+        spawnSync("tmux", ["-L", "komla-v1", "kill-server"], { env: tmuxEnv });
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("sshWorkspaceService", () => {
@@ -2176,6 +2258,57 @@ describe("sshWorkspaceService", () => {
 
         expect(result.status).not.toBe(0);
         expect(existsSync(capturePath)).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  itWithPosixShell(
+    "leaves no launch file behind when the session doesn't start",
+    async () => {
+      pinPlatform("linux");
+      const { sshWorkspaceService } =
+        await import("../../../src/main/services/ssh-workspace.service");
+      const root = mkdtempSync(join(tmpdir(), "komla-inline-launch-file-"));
+      createInlineTerminalHarness(root);
+      writeFileSync(
+        join(root, "tmux"),
+        [
+          "#!/bin/sh",
+          'case " $* " in',
+          '  *" komla_launch_guard "*) exit 0 ;;',
+          '  *" new-session "*) exit 1 ;;',
+          '  *" has-session "*) exit 1 ;;',
+          "  *) exit 0 ;;",
+          "esac",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+
+      try {
+        const launch = sshWorkspaceService.buildTerminalLaunchCommand(
+          {
+            kind: "ssh",
+            hostId: "ssh-dev",
+            remoteDirectory: root,
+            remoteRepoPath: join(root, "repo.git"),
+            remoteProjectRoot: join(root, "projects", "repo"),
+            gitUrl: "git@example.com:repo.git",
+          },
+          `: ${"long ".repeat(3_000)}`,
+          "term-launch-file",
+          "ws-launch-file",
+          "start",
+        );
+        const result = spawnSync("/bin/sh", ["-c", launch.command], {
+          env: { ...process.env, PATH: `${root}:${process.env.PATH ?? ""}` },
+          encoding: "utf8",
+        });
+
+        expect(result.status).toBe(1);
+        expect(readdirSync(join(root, "terminal-launch"))).toEqual([]);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

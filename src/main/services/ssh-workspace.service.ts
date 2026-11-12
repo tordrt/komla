@@ -137,6 +137,8 @@ const TMUX_ATTACH = `tmux -u -L ${TMUX_SOCKET_NAME} attach-session $([ "$(tmux -
 const TMUX_CLIENT_ROUTE_OPTION = '"@komla_route_$(printf %s "$komla_tty" | tr -c A-Za-z0-9 _)"';
 /** The session option holding the path its shell reaches the forwarded agent through. */
 const TMUX_AGENT_LINK_OPTION = '@komla_agent_link';
+// tmux refuses a command of 16 KB ("command too long"), its other arguments included.
+const MAX_TMUX_COMMAND_BYTES = 12 * 1024;
 // macOS fits 104 bytes in a socket path, its terminating NUL among them.
 const MAX_SOCKET_PATH_BYTES = 103;
 // Hands a session's routing to the device whose client became its latest, as at a keypress
@@ -761,8 +763,28 @@ function reattachRemoteTerminalSessionCommands(
   ];
 }
 
+/**
+ * Lines that write a session's login command to `file`, a shell word, in `directory`, readable
+ * by the user alone: it holds the prompt.
+ */
+function writeLaunchFileLines(directory: string, file: string, loginCommand: string): string[] {
+  const quotedDirectory = shellQuotePosix(directory);
+  const failed = (what: string) =>
+    `{ printf '[komla] could not ${what} the terminal launch file\\n' >&2; exit 1; }`;
+  // A here-document takes the command as it is, where quoting it again would grow it.
+  let delimiter = 'KOMLA_LAUNCH_END';
+  while (loginCommand.split('\n').includes(delimiter)) delimiter += '_';
+  return [
+    `{ mkdir -p ${quotedDirectory} && chmod 700 ${quotedDirectory}; } || ${failed('prepare')}`,
+    `(umask 077 && cat > ${file}) <<'${delimiter}' || ${failed('write')}`,
+    loginCommand,
+    delimiter,
+  ];
+}
+
 function remoteTerminalCreationCommand(
   backend: SshWorkspaceBackend,
+  remoteBasePath: string,
   environment: Record<string, string | number | undefined>,
   terminalId: string,
   command: string | null,
@@ -799,23 +821,43 @@ function remoteTerminalCreationCommand(
   // which carries them past it; the host's `komla` is the companion. Without the companion yet,
   // it runs directly.
   const ptyProxy = environment.KOMLA_CLI ? shellQuotePosix(String(environment.KOMLA_CLI)) : null;
-  const sessionCommand = [
-    `tmux -L ${TMUX_SOCKET_NAME} set-option -t ${shellQuotePosix(sessionName)} @komla_installation_key ${shellQuotePosix(String(environment.KOMLA_INSTALLATION_KEY ?? ''))} 2>/dev/null || true`,
-    `cd ${shellQuotePosix(backend.remoteDirectory)} || exit 1`,
-    'remote_shell=${SHELL:-/bin/bash}',
-    chooseLoginShellFlags,
-    ...(ptyProxy
-      ? [
-          `if [ -x ${ptyProxy} ] && ${ptyProxy} __pty-proxy --check >/dev/null 2>&1; then`,
-          `  run_shell() { exec ${ptyProxy} __pty-proxy "$@"; }`,
-          'else',
-          '  run_shell() { exec "$@"; }',
-          'fi',
-        ]
-      : ['run_shell() { exec "$@"; }']),
-    `if [ -x "$remote_shell" ]; then run_shell "$remote_shell" "$login_flags" ${shellQuotePosix(loginCommand)}; fi`,
-    `run_shell /bin/sh -lc ${shellQuotePosix(loginCommand)}`,
-  ].join('\n');
+  /** The session's command, running the login command given as a shell word. */
+  const sessionCommandRunning = (login: string, before: string[] = []) =>
+    [
+      ...before,
+      `tmux -L ${TMUX_SOCKET_NAME} set-option -t ${shellQuotePosix(sessionName)} @komla_installation_key ${shellQuotePosix(String(environment.KOMLA_INSTALLATION_KEY ?? ''))} 2>/dev/null || true`,
+      `cd ${shellQuotePosix(backend.remoteDirectory)} || exit 1`,
+      'remote_shell=${SHELL:-/bin/bash}',
+      chooseLoginShellFlags,
+      ...(ptyProxy
+        ? [
+            `if [ -x ${ptyProxy} ] && ${ptyProxy} __pty-proxy --check >/dev/null 2>&1; then`,
+            `  run_shell() { exec ${ptyProxy} __pty-proxy "$@"; }`,
+            'else',
+            '  run_shell() { exec "$@"; }',
+            'fi',
+          ]
+        : ['run_shell() { exec "$@"; }']),
+      `if [ -x "$remote_shell" ]; then run_shell "$remote_shell" "$login_flags" ${login}; fi`,
+      `run_shell /bin/sh -lc ${login}`,
+    ].join('\n');
+  let sessionCommand = shellQuotePosix(sessionCommandRunning(shellQuotePosix(loginCommand)));
+  // An agent's prompt of a few kilobytes, which the command holds twice, is over tmux's limit.
+  // The session then reads the login command from a file of this launch's own, and removes it.
+  const launchDirectory = joinRemote(remoteBasePath, 'terminal-launch');
+  // Ends in the launching shell's process id, so no other launch of the terminal shares it.
+  const launchFile =
+    Buffer.byteLength(sessionCommand) > MAX_TMUX_COMMAND_BYTES
+      ? `${shellQuotePosix(joinRemote(launchDirectory, terminalId))}.`
+      : null;
+  if (launchFile) {
+    sessionCommand = `"komla_launch=$$; "${shellQuotePosix(
+      sessionCommandRunning('"$komla_login"', [
+        `komla_login=$(cat ${launchFile}"$komla_launch") || exit 1`,
+        `rm -f ${launchFile}"$komla_launch"`,
+      ])
+    )}`;
+  }
   const lines = [
     `session_name=${shellQuotePosix(sessionName)}`,
     `target=${shellQuotePosix(target)}`,
@@ -843,12 +885,14 @@ function remoteTerminalCreationCommand(
     remoteTmuxServerStartCommand(),
     // The new shell starts on the link, so it points at this connection's agent first.
     ...(agentLink ? [pruneAgentLinksCommand(agentLink), pointAgentLinkCommand(agentLink)] : []),
-    `if tmux -L ${TMUX_SOCKET_NAME} new-session -d -s "$session_name" ${shellQuotePosix(sessionCommand)}; then`,
+    ...(launchFile ? writeLaunchFileLines(launchDirectory, `${launchFile}$$`, loginCommand) : []),
+    `if tmux -L ${TMUX_SOCKET_NAME} new-session -d -s "$session_name" ${sessionCommand}; then`,
     ...sessionEnvironmentCommands.map((line) => `  ${line}`),
     ...(agentLink ? [`  ${agentLinkOptionCommand('"$session_name"', agentLink)}`] : []),
     `  ${rememberClientRouteCommand(environment, '"$session_name"', agentLink)}`,
     ...(reportReplacement ? [`  ${MANAGED_REMOTE_TERMINAL_SESSION_REPLACED_SHELL_COMMAND}`] : []),
     'else',
+    ...(launchFile ? [`  rm -f ${launchFile}$$`] : []),
     `  tmux -L ${TMUX_SOCKET_NAME} has-session -t "$target" 2>/dev/null || exit 1`,
     'fi',
     ...(mayFinishBeforeAttachment
@@ -3091,6 +3135,7 @@ class SshWorkspaceService {
     }
     const creationCommand = remoteTerminalCreationCommand(
       backend,
+      remoteBasePath,
       terminalEnvironment,
       terminalId,
       command,

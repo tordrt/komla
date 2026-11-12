@@ -22,6 +22,10 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const TMUX_SOCKET_NAME: &str = "komla-v1";
 /// Installed by the desktop under `helpers/`; the single definition of the managed server's settings.
 const SERVER_SETUP_SCRIPT: &str = "tmux-server.sh";
+/// tmux refuses a command of 16 KB ("command too long"), its other arguments included.
+const MAX_TMUX_COMMAND_BYTES: usize = 12 * 1024;
+/// The folder under Komla's data that holds login commands too long for tmux until they start.
+const LAUNCH_DIRECTORY: &str = "terminal-launch";
 
 /// Environment a Komla terminal launches with that a sibling terminal shares unchanged.
 const SHARED_TERMINAL_ENVIRONMENT: &[&str] = &[
@@ -838,6 +842,57 @@ pub(crate) const SHELL_COMMAND: &str =
 /// `pty_proxy`, the companion's own executable, runs the shell to carry its OSC 7501 statuses
 /// past tmux.
 pub(crate) fn session_command(session: &TerminalSession, pty_proxy: Option<&Path>) -> String {
+    session_script(session, pty_proxy, &shell_quote(&login_command(session)))
+}
+
+/// The session's command and, when its login command is too long for tmux to take, the file it
+/// reads that from and removes: the user's alone, since it holds the prompt, and this launch's.
+fn launchable_session_command(
+    session: &TerminalSession,
+    pty_proxy: Option<&Path>,
+    launch_directory: &Path,
+) -> anyhow::Result<(String, Option<PathBuf>)> {
+    let inline = session_command(session, pty_proxy);
+    if inline.len() <= MAX_TMUX_COMMAND_BYTES {
+        return Ok((inline, None));
+    }
+    // A name of its own, since a retry of the terminal from this process may start before this
+    // session has read its file.
+    let file = launch_directory.join(format!("{}.{}", session.terminal_id, random_uuid()?));
+    write_private_file(&file, login_command(session).as_bytes())
+        .with_context(|| format!("could not write {}", file.display()))?;
+    let quoted = shell_quote(&file.to_string_lossy());
+    let script = format!(
+        "komla_login=$(cat {quoted}) || exit 1\nrm -f {quoted}\n{}",
+        session_script(session, pty_proxy, "\"$komla_login\"")
+    );
+    Ok((script, Some(file)))
+}
+
+fn write_private_file(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut directory = fs::DirBuilder::new();
+    directory.recursive(true);
+    let mut file = fs::OpenOptions::new();
+    file.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::DirBuilderExt::mode(&mut directory, 0o700);
+        std::os::unix::fs::OpenOptionsExt::mode(&mut file, 0o600);
+    }
+    if let Some(parent) = path.parent() {
+        directory.create(parent)?;
+        // The mode applies only to a folder this creates; one that was there is made private too.
+        #[cfg(unix)]
+        fs::set_permissions(parent, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    }
+    file.open(path)?.write_all(content)
+}
+
+/// What the session's shell runs: the terminal's environment, then its command, with a shell to
+/// fix the problem in if that fails.
+fn login_command(session: &TerminalSession) -> String {
     let mut login: Vec<String> = session
         .environment
         .iter()
@@ -864,7 +919,11 @@ pub(crate) fn session_command(session: &TerminalSession, pty_proxy: Option<&Path
     );
     login.extend(open_shell.iter().map(|line| format!("  {line}")));
     login.push("fi".to_owned());
-    let login = login.join("\n");
+    login.join("\n")
+}
+
+/// Runs `login`, a shell word holding the login command, in the user's shell in the workspace.
+fn session_script(session: &TerminalSession, pty_proxy: Option<&Path>, login: &str) -> String {
     // A companion whose binary was replaced since it started can't run it anymore.
     let run_shell = match pty_proxy {
         Some(path) => {
@@ -890,11 +949,8 @@ pub(crate) fn session_command(session: &TerminalSession, pty_proxy: Option<&Path
             None => "remote_shell=${SHELL:-/bin/bash}".to_owned(),
         },
         run_shell,
-        format!(
-            r#"if [ -x "$remote_shell" ]; then run_shell "$remote_shell" -lic {}; fi"#,
-            shell_quote(&login)
-        ),
-        format!("run_shell /bin/sh -lc {}", shell_quote(&login)),
+        format!(r#"if [ -x "$remote_shell" ]; then run_shell "$remote_shell" -lic {login}; fi"#),
+        format!("run_shell /bin/sh -lc {login}"),
     ]
     .join("\n")
 }
@@ -903,6 +959,8 @@ pub(crate) fn session_command(session: &TerminalSession, pty_proxy: Option<&Path
 pub(crate) struct TmuxSessionLauncher {
     /// Script the desktop installs to start and configure the managed server.
     pub(crate) server_setup: PathBuf,
+    /// Where a login command too long for tmux waits for its session.
+    launch_directory: PathBuf,
     socket: String,
 }
 
@@ -914,6 +972,7 @@ impl TmuxSessionLauncher {
     pub(crate) fn on_socket(base: &Path, socket: &str) -> Self {
         Self {
             server_setup: base.join("helpers").join(SERVER_SETUP_SCRIPT),
+            launch_directory: base.join(LAUNCH_DIRECTORY),
             socket: socket.to_owned(),
         }
     }
@@ -968,18 +1027,19 @@ impl SessionLauncher for TmuxSessionLauncher {
         self.prepare_server()?;
         let name = format!("komla-{}", session.terminal_id);
         let pty_proxy = std::env::current_exe().ok().filter(|_| cfg!(unix));
+        let (command, launch_file) =
+            launchable_session_command(session, pty_proxy.as_deref(), &self.launch_directory)?;
         let started = self
             .tmux()
-            .args([
-                "new-session",
-                "-d",
-                "-s",
-                &name,
-                &session_command(session, pty_proxy.as_deref()),
-            ])
+            .args(["new-session", "-d", "-s", &name, &command])
             .stderr(Stdio::piped())
-            .output()
-            .context("could not run tmux")?;
+            .output();
+        if !started.as_ref().is_ok_and(|output| output.status.success()) {
+            if let Some(file) = &launch_file {
+                let _ = fs::remove_file(file);
+            }
+        }
+        let started = started.context("could not run tmux")?;
         if !started.status.success() {
             bail!(
                 "could not start the agent's terminal session: {}",
@@ -1477,6 +1537,64 @@ pub(crate) mod tests {
             .output()
             .unwrap();
         assert!(output.status.success());
+    }
+
+    // tmux refuses a command over about 16 KB, and a brief written for another agent runs to
+    // several, which the command holds twice.
+    #[test]
+    #[cfg(unix)]
+    fn a_prompt_of_several_kilobytes_reaches_its_session_through_a_private_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let capture = temporary.path().join("prompt");
+        let launches = temporary.path().join("terminal-launch");
+        let prompt = "Don't stop until the work is done, and say what you changed. ".repeat(120);
+        let session = |command: String| TerminalSession {
+            terminal_id: "t".to_owned(),
+            directory: temporary.path().to_owned(),
+            environment: vec![("KOMLA_TERMINAL_ID".to_owned(), "t".to_owned())],
+            command,
+            installation_key: None,
+            login_shell: Some(PathBuf::from("/bin/sh")),
+        };
+        let long = session(format!(
+            "printf %s {} > {}",
+            shell_quote(&prompt),
+            shell_quote(&capture.to_string_lossy())
+        ));
+        assert!(session_command(&long, None).len() > MAX_TMUX_COMMAND_BYTES);
+        // A folder someone else's umask made is the user's alone again once it holds a prompt.
+        fs::create_dir(&launches).unwrap();
+        fs::set_permissions(&launches, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (script, file) = launchable_session_command(&long, None, &launches).unwrap();
+
+        assert!(script.len() < 1024, "{}", script.len());
+        let file = file.expect("a launch file");
+        assert_eq!(file.parent(), Some(launches.as_path()));
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode(&launches), mode(&file)), (0o700, 0o600));
+        // Another launch of the terminal from this process, as a retry, leaves this one's file be.
+        let (_, again) = launchable_session_command(&long, None, &launches).unwrap();
+        let again = again.expect("a launch file");
+        assert_ne!(again, file);
+        fs::remove_file(again).unwrap();
+        let output = Command::new("/bin/sh")
+            .args(["-c", &script])
+            .env("HOME", temporary.path())
+            .env("ENV", "/dev/null")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), prompt);
+        assert!(!file.exists(), "the session removes its launch file");
+
+        // A command tmux takes stays in it, with nothing written.
+        let short = session("true".to_owned());
+        let (script, file) = launchable_session_command(&short, None, &launches).unwrap();
+        assert_eq!((script, file), (session_command(&short, None), None));
     }
 
     #[test]

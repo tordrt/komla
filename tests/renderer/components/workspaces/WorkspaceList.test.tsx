@@ -891,7 +891,7 @@ describe('WorkspaceList pins and snoozes', () => {
       expect(cardIds()).toEqual(['ws-1', 'ws-2']);
     });
 
-    it('keeps a workspace opened from the shelf on it while it is open', () => {
+    it('keeps a workspace opened from the shelf on it until its agent stops', () => {
       workspacesState.collapsedWorkspaceGroupKeys = new Set(['project:project-1']);
       workspacesState.workspaces = [working('ws-1'), working('ws-2')];
       const { rerender } = render(<WorkspaceList />);
@@ -903,14 +903,84 @@ describe('WorkspaceList pins and snoozes', () => {
       expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('2');
       expect(cardIds()).toEqual(['ws-1', 'ws-2']);
 
-      // Its agent finishing while it's open doesn't move it either; leaving it does.
-      workspacesState.workspaces = [working('ws-1'), working('ws-2', { terminals: running() })];
+      // Its agent running a command, or the list briefly missing it, isn't its agent stopping.
+      workspacesState.workspaces = [
+        working('ws-1'),
+        working('ws-2', {
+          terminals: [
+            createTerminal({
+              id: 'term-ws-2',
+              status: 'running',
+              agentActive: true,
+              commandActive: true,
+            }),
+          ],
+        }),
+      ];
+      rerender(<WorkspaceList />);
+      workspacesState.workspaces = [working('ws-1')];
+      rerender(<WorkspaceList />);
+      workspacesState.workspaces = [working('ws-1'), working('ws-2')];
       rerender(<WorkspaceList />);
       expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('2');
 
-      workspacesState.selectedWorkspaceId = 'ws-1';
+      // Its agent finishing moves it into the list at once, without the user leaving it, even
+      // with the done already seen, as the open workspace's focused terminal's is.
+      workspacesState.workspaces = [
+        working('ws-1'),
+        working('ws-2', {
+          terminals: [
+            createTerminal({
+              id: 'term-ws-2',
+              status: 'running',
+              attention: {
+                kind: 'turn-complete',
+                source: 'claude-code',
+                updatedAt: 1,
+                seen: true,
+              },
+            }),
+          ],
+        }),
+      ];
       rerender(<WorkspaceList />);
       expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('1');
+      expect(cardIds()).toEqual(['ws-1']);
+
+      // Back at work while open, it stays in the list until it's left.
+      workspacesState.workspaces = [working('ws-1'), working('ws-2')];
+      rerender(<WorkspaceList />);
+      expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('1');
+
+      workspacesState.selectedWorkspaceId = 'ws-1';
+      rerender(<WorkspaceList />);
+      expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('2');
+    });
+
+    it('moves a workspace opened from the shelf into the list once its agent needs input', () => {
+      workspacesState.workspaces = [working('ws-1'), working('ws-2')];
+      const { rerender } = render(<WorkspaceList />);
+      fireEvent.click(screen.getByRole('button', { name: /Working/ }));
+      workspacesState.selectedWorkspaceId = 'ws-2';
+      rerender(<WorkspaceList />);
+
+      workspacesState.workspaces = [
+        working('ws-1'),
+        working('ws-2', {
+          terminals: [
+            createTerminal({
+              id: 'term-ws-2',
+              status: 'running',
+              agentActive: true,
+              attention: { kind: 'input-required', source: 'claude-code', updatedAt: 1 },
+            }),
+          ],
+        }),
+      ];
+      rerender(<WorkspaceList />);
+
+      expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('1');
+      expect(cardIds()).toEqual(['ws-2', 'ws-1']);
     });
 
     it('keeps pinned working workspaces pinned, and the header of a project that all works', () => {

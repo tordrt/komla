@@ -56,6 +56,7 @@ import {
   isListedOnStoppedShelf,
   isListedOnTrashShelf,
   matchesWorkspaceListFiltersExceptHost,
+  stoppedWorking,
 } from './workspace-list-filtering';
 import {
   getVisibleOrderedWorkspaceIds,
@@ -496,9 +497,9 @@ interface OpenPlacement {
 
 /**
  * Where the open workspace stays: where it was when it was opened, in the list or on the Working or
- * Filtered shelf, so prompting its agent or seeing its done doesn't send it away and a card clicked
- * on a shelf stays there. Hiding working workspaces or tags, or changing its tag, leaves the open
- * one in the list.
+ * Filtered shelf, so prompting its agent or seeing its done doesn't send it onto a shelf and a card
+ * clicked on a shelf stays there. Hiding working workspaces or tags, or changing its tag, leaves
+ * the open one in the list, and so does its agents stopping work, as it would any other.
  */
 function useOpenPlacement(
   workspaces: Workspace[],
@@ -527,7 +528,9 @@ function useOpenPlacement(
     setPlacement(next);
     return next;
   }
-  if (placement.hideWorking !== hideWorking) {
+  // Its agents stopping is what the shelf waits for, so the open workspace leaves it then too.
+  const leftWorkingShelf = placement.onWorkingShelf && !!open && stoppedWorking(open);
+  if (placement.hideWorking !== hideWorking || leftWorkingShelf) {
     const next = { ...placement, hideWorking, onWorkingShelf: false };
     setPlacement(next);
     return next;

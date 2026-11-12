@@ -67,6 +67,11 @@ export function isListedOnStoppedShelf(
   );
 }
 
+/** An alert of the workspace's own, not one of its terminals', that its card shows as a state. */
+function hasOwnAlert(workspace: Workspace): boolean {
+  return !workspace.attention?.terminalId && !!agentStateOf(workspace.attention, false);
+}
+
 /**
  * Whether the sidebar's Working shelf takes the workspace while working ones are hidden: an agent
  * works in it, and none needs input, failed or finished a turn the user hasn't seen, nor does an
@@ -77,7 +82,7 @@ export function isListedOnStoppedShelf(
  */
 export function goesOnWorkingShelf(workspace: Workspace): boolean {
   if (workspace.pinned || isWorkspaceSnoozed(workspace)) return false;
-  if (!workspace.attention?.terminalId && agentStateOf(workspace.attention, false)) return false;
+  if (hasOwnAlert(workspace)) return false;
   const agents = workspaceAgents(workspace);
   return (
     agents.every((agent) => agent.state === 'working') &&
@@ -85,6 +90,17 @@ export function goesOnWorkingShelf(workspace: Workspace): boolean {
       agent.terminal ? !agent.terminal.commandActive : !!workspace.agentLaunching
     )
   );
+}
+
+/**
+ * Whether the workspace's agents are through with what the Working shelf waits on: none works any
+ * more, or one needs input, failed or finished a turn, or an alert of the workspace's own shows.
+ * Unlike leaving the shelf's terms, a command running or an agent still starting doesn't count.
+ */
+export function stoppedWorking(workspace: Workspace): boolean {
+  if (hasOwnAlert(workspace)) return true;
+  const agents = workspaceAgents(workspace);
+  return agents.length === 0 || agents.some((agent) => agent.state !== 'working');
 }
 
 /**

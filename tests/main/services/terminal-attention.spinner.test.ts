@@ -739,6 +739,153 @@ describe('Terminal Attention State: spinner and attention', () => {
     });
   });
 
+  describe("a Terminal whose attachment ended during its program's turn", () => {
+    const claudeHook = (kind: AgentHook['kind'], hookInput: Record<string, unknown>) =>
+      ({
+        source: 'claude-code',
+        kind,
+        deliveryId: `d-${kind}`,
+        hookInput: { session_id: 's', ...hookInput },
+      }) as AgentHook;
+    const stop = (backgroundTasks: unknown[] = []) => ({
+      ...claudeHook('turn-complete', { hook_event_name: 'Stop', background_tasks: backgroundTasks }),
+      message: 'Fixed the tests',
+    });
+    const idleReminder = {
+      ...claudeHook('idle', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }),
+      message: 'Claude is waiting for your input',
+    };
+
+    /** Claude in t1 reports a turn at work, as Komla here is attached to it. */
+    async function turnAtWork() {
+      const harness = createAttentionHarness([sshWorkspace('running')]);
+      harness.attention.programStatusChanged('t1', { state: 'idle', app: 'claude-code' });
+      harness.attention.programStatusChanged('t1', { state: 'working', app: 'claude-code' });
+      await harness.settle(
+        harness.toTerminal('t1'),
+        claudeHook('activity', { hook_event_name: 'PreToolUse', tool_name: 'Bash' })
+      );
+      expect(harness.workspace('ws-42').agentActive).toBe(true);
+      return harness;
+    }
+
+    /** The SSH connection ended, so its done went nowhere, and the host came back. */
+    function connectionLost({ attention, terminal }: ReturnType<typeof createAttentionHarness>) {
+      attention.attachmentEnded('t1');
+      terminal('t1').status = 'stopped';
+      attention.machineResumed();
+      attention.hostConnected('ssh-host-1');
+    }
+
+    it('ends the turn with the Stop that arrived before Komla saw the attachment end', async () => {
+      const harness = await turnAtWork();
+      await harness.settle(harness.toTerminal('t1'), stop());
+
+      connectionLost(harness);
+
+      expect(!!harness.workspace('ws-42').agentActive).toBe(false);
+      expect(harness.terminal('t1').attention).toMatchObject({
+        kind: 'turn-complete',
+        message: 'Fixed the tests',
+      });
+    });
+
+    it('ends the turn with an idle reminder that arrived before Komla saw it end', async () => {
+      const harness = await turnAtWork();
+      // The reminder replaced the undelivered Stop in this installation's mailbox.
+      await harness.settle(harness.toTerminal('t1'), idleReminder);
+
+      connectionLost(harness);
+
+      expect(!!harness.workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('ends the turn with the StopFailure that arrived before Komla saw it end', async () => {
+      const harness = await turnAtWork();
+      await harness.settle(harness.toTerminal('t1'), {
+        ...claudeHook('error', { hook_event_name: 'StopFailure' }),
+        message: 'API Error: 529 Overloaded',
+      });
+
+      connectionLost(harness);
+
+      expect(!!harness.workspace('ws-42').agentActive).toBe(false);
+      expect(harness.terminal('t1').attention).toMatchObject({
+        kind: 'error',
+        message: 'API Error: 529 Overloaded',
+      });
+    });
+
+    it("keeps the turn on for another program's idle, which is no reminder", async () => {
+      const harness = await turnAtWork();
+      await harness.settle(harness.toTerminal('t1'), {
+        ...claudeHook('idle', { hook_event_name: 'Notification', notification_type: 'other' }),
+      });
+
+      connectionLost(harness);
+
+      expect(harness.workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it.each(['done', 'idle', 'error'])(
+      'ends the turn quietly when the session check reads its program %s',
+      async (state) => {
+        const harness = await turnAtWork();
+        connectionLost(harness);
+        expect(harness.workspace('ws-42').agentActive).toBe(true);
+
+        harness.attention.sessionStatusRead('t1', {
+          state,
+          app: 'claude-code',
+          msg: 'Fixed the tests',
+        });
+
+        expect(!!harness.workspace('ws-42').agentActive).toBe(false);
+        // The user may have seen it end elsewhere; a copy of its Stop shows the done.
+        expect(harness.terminal('t1').attention).toBeUndefined();
+        expect(harness.windows.attentionRaised).not.toHaveBeenCalled();
+      }
+    );
+
+    it('keeps the spinner on while the session check reads its program at work', async () => {
+      const harness = await turnAtWork();
+      connectionLost(harness);
+
+      harness.attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      harness.attention.hostChecked('ssh-host-1');
+
+      expect(harness.workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('leaves the turn to the hooks once one arrives after the attachment ended', async () => {
+      const harness = await turnAtWork();
+      connectionLost(harness);
+      // The user's next prompt, from another installation, starts a turn its hooks keep on.
+      await harness.settle(
+        harness.toTerminal('t1'),
+        claudeHook('prompt-submit', { hook_event_name: 'UserPromptSubmit', prompt: 'And more' })
+      );
+
+      harness.attention.sessionStatusRead('t1', { state: 'done', app: 'claude-code' });
+
+      expect(harness.workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('keeps the turn on for the background work its Stop named', async () => {
+      const harness = await turnAtWork();
+      await harness.settle(
+        harness.toTerminal('t1'),
+        stop([{ type: 'shell', status: 'running', id: 'b1', command: 'npm test' }])
+      );
+      connectionLost(harness);
+
+      // Claude reports done while that work holds the turn.
+      harness.attention.sessionStatusRead('t1', { state: 'done', app: 'claude-code' });
+
+      expect(harness.workspace('ws-42').agentActive).toBe(true);
+    });
+  });
+
   describe('a Terminal not attached here whose Hook Journal the check read', () => {
     const claude = (
       kind: 'prompt-submit' | 'activity' | 'turn-complete',

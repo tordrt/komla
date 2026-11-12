@@ -113,6 +113,8 @@ interface ProgramTurn {
   approval?: string;
   /** Its Stop arrived. */
   stopped?: boolean;
+  /** Claude's idle reminder arrived, which it sends only once a turn has ended; see isClaudeIdleReminder. */
+  idleReminder?: string;
   /** Its Stop listed background work that resumes the turn, so its done waits for that work. */
   waitsForBackgroundWork?: boolean;
   /** The error its StopFailure reported, for the idle that ends it. */
@@ -365,6 +367,11 @@ export class TerminalAttention {
   private readonly lifecycle = new NotificationLifecycle();
   private readonly codexTitleStatus: CodexTitleStatus;
   private readonly programStatuses = new Map<string, ProgramStatus>();
+  /**
+   * The program of each Terminal whose attachment ended during a turn it reported, by Terminal,
+   * until a hook or the session check says how that turn went; see detachedTurnRead.
+   */
+  private readonly detachedTurns = new Map<string, string>();
   /** The Terminal each Codex session prompted in, by session id. */
   private readonly codexSessions = new Map<string, string>();
   /** The prompts a Terminal's Claude showed through its PermissionRequest hook, until answered. */
@@ -511,6 +518,8 @@ export class TerminalAttention {
       if (target.terminalId) {
         if (hook.replayedAt === undefined) this.countHook(target.terminalId);
         this.noteAgentHook(target.terminalId, !!hook.copy, hook.replayedAt);
+        // Newer than any turn whose attachment ended, which its hooks now keep.
+        this.detachedTurns.delete(target.terminalId);
       }
     }
     return 'taken';
@@ -609,6 +618,7 @@ export class TerminalAttention {
   programStatusChanged(terminalId: string, status: TerminalProgramStatus): void {
     // A record of the program's own, such as a background subagent's, says nothing of the Terminal.
     if (status.id !== undefined) return;
+    this.detachedTurns.delete(terminalId);
     let current = this.programStatuses.get(terminalId);
     // Codex and Claude Code name no app as they quit.
     if (!status.app && !(status.state === 'clear' && current)) return;
@@ -647,6 +657,7 @@ export class TerminalAttention {
         this.forgetEndedIdle(current);
         if (current.turn) {
           current.turn.stopped = current.turn.waitsForBackgroundWork = false;
+          current.turn.idleReminder = undefined;
           current.turn.reply = current.turn.failure = undefined;
         }
         current.turn ??= startup ? { startup } : {};
@@ -731,12 +742,55 @@ export class TerminalAttention {
     this.clearInputRequest(terminalId, agent);
   }
 
-  /** The Terminal's attachment ended: its settling and held hooks close. */
+  /**
+   * The Terminal's attachment ended: its settling and held hooks close. A turn its program
+   * reported at work goes to the hooks, as its done went nowhere, the SSH connection having ended
+   * first, and its host repeats only a working or blocked once Komla attaches again. A Stop or idle
+   * reminder its hooks brought meanwhile ended it already; otherwise the session check may read
+   * how it went before a hook says.
+   */
   attachmentEnded(terminalId: string): void {
+    this.endDetachedTurn(terminalId);
     this.forgetProgramStatus(terminalId);
     this.codexTitleStatus.close(terminalId);
     this.lifecycle.close(`terminal:${terminalId}`);
     this.lateActivityUntil.delete(terminalId);
+  }
+
+  /** See attachmentEnded. */
+  private endDetachedTurn(terminalId: string): void {
+    const status = this.programStatuses.get(terminalId);
+    const turn = status?.turn;
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    if (!status || !turn || turn.startup || !workspace) return;
+    if (!this.hasActiveAgentSource(workspace.id, status.source, terminalId)) return;
+    // Background work the Stop named holds the turn, and resumes it with hooks of its own.
+    if (turn.waitsForBackgroundWork) return;
+    if (turn.failure !== undefined) {
+      this.failProgramTurn(workspace, terminalId, status, turn.failure);
+    } else if (turn.stopped) {
+      this.completeProgramTurn(workspace, terminalId, status, status.heldDone?.message);
+    } else if (turn.idleReminder !== undefined) {
+      this.endProgramTurnQuietly(workspace, terminalId, status);
+      this.reportProgram(workspace, terminalId, { kind: 'idle', message: turn.idleReminder });
+    } else {
+      this.detachedTurns.set(terminalId, status.source);
+    }
+  }
+
+  /**
+   * What the session check read of a Terminal whose attachment ended during its program's turn:
+   * a done, idle or error ended that turn, so its spinner stops. Nothing is announced, as with any
+   * report the check reads: the user may have seen the turn end on another installation, and a
+   * copy of its Stop still in the mailbox shows the done.
+   */
+  private detachedTurnRead(terminalId: string, status: TerminalProgramStatus | undefined): void {
+    const source = this.detachedTurns.get(terminalId);
+    if (!source || status?.app !== source || status.id !== undefined) return;
+    if (!['done', 'idle', 'error'].includes(status.state)) return;
+    this.detachedTurns.delete(terminalId);
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    if (workspace) this.clearTerminalSourcesOnly(workspace.id, terminalId);
   }
 
   /** A Terminal raised an OSC alert; it shows when no agent hook explains it. */
@@ -822,6 +876,7 @@ export class TerminalAttention {
   /** The Terminal's execution exited or was stopped here. Its attention stays. */
   ended(terminalId: string): void {
     this.forgetProgramStatus(terminalId);
+    this.detachedTurns.delete(terminalId);
     const workspace = this.findWorkspaceByTerminalId(terminalId);
     if (workspace) this.clearTerminalSources(workspace.id, terminalId);
   }
@@ -829,6 +884,7 @@ export class TerminalAttention {
   /** Something new replaced the Terminal's execution. Its old attention goes. */
   replaced(terminalId: string): void {
     this.forgetProgramStatus(terminalId);
+    this.detachedTurns.delete(terminalId);
     this.claudePermissions.delete(terminalId);
     const workspace = this.findWorkspaceByTerminalId(terminalId);
     if (workspace) this.clearTerminalSources(workspace.id, terminalId);
@@ -838,6 +894,7 @@ export class TerminalAttention {
   /** The Terminal is being removed from the workspace, which may have dropped it already. */
   removed(workspaceId: string, terminalId: string): void {
     this.forgetProgramStatus(terminalId);
+    this.detachedTurns.delete(terminalId);
     this.hooksArrived.delete(terminalId);
     this.sessionReports.delete(terminalId);
     this.newestCopies.delete(terminalId);
@@ -1162,6 +1219,7 @@ export class TerminalAttention {
     const report = JSON.stringify(status ?? null);
     if (this.sessionReports.get(terminalId) === report) return;
     this.sessionReports.set(terminalId, report);
+    if (!hookSince) this.detachedTurnRead(terminalId, status);
     if (hookSince || status?.state !== 'working' || !status.app || status.id !== undefined) return;
     // The journal tells of an agent whose hooks it holds, as of a Codex turn a server outlives.
     if (this.journalSources.get(terminalId)?.has(status.app)) return;
@@ -1918,6 +1976,7 @@ export class TerminalAttention {
     }
     const turn = own ? status?.turn : undefined;
     if (turn && hook.kind === 'input-required') turn.approval = hook.message;
+    if (turn && isClaudeIdleReminder(hook)) turn.idleReminder = hook.message ?? '';
     if (turn && status && isFailedTurn(hook)) {
       turn.failure = hook.message ?? '';
       // The done it reported waits for a Stop, which a failed turn doesn't send.
@@ -2680,6 +2739,15 @@ const STAND_IN_DONE_MESSAGES = new Set([
 ]);
 
 /** The prompt a prompt-submit hook carries, with its lines, or else its one-line message. */
+/** Claude's reminder that it waits for input, which it sends a minute after a turn ended. */
+function isClaudeIdleReminder(hook: AgentHook): boolean {
+  return (
+    hook.source === 'claude-code' &&
+    hook.kind === 'idle' &&
+    hook.hookInput?.notification_type === 'idle_prompt'
+  );
+}
+
 function submittedPrompt(hook: AgentHook): string | undefined {
   // Antigravity's prompt comes with its turn's first model call, as lastUserInput.
   const field = hook.source === 'antigravity' ? 'lastUserInput' : 'prompt';

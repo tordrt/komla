@@ -17,6 +17,7 @@
 
 ### Fixes
 
+- Quitting Komla right after opening a workspace no longer sometimes leaves it running in the background.
 - After switching environment in the New Workspace dialog, Enter now launches the workspace instead of switching the environment back.
 - A workspace moved to the Trash is always stopped first, so the Trash no longer holds workspaces that are still running.
 - An SSH workspace that's missing from its host no longer shows "Failed to create SSH workspace" again every time it changes.

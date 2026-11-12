@@ -2679,6 +2679,20 @@ describe('PtyService', () => {
   });
 
   describe('killAll', () => {
+    it('starts no PTY once shutdown began, which nothing would then kill', async () => {
+      // A window closing at quit can still ask for a terminal after killAll() ran. Its PTY would
+      // outlive the shutdown, and node-pty's exit thread would hold the process open.
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      ptyService.spawn('term-1', '/home/user', null);
+      const killPromise = ptyService.killAll();
+      spawnedPtys[0]._simulateExit(0);
+      await killPromise;
+
+      expect(() => ptyService.spawn('term-2', '/home/user', null)).toThrow(/quitting/);
+      expect(() => ptyService.restart('term-1', '/home/user', null)).toThrow(/quitting/);
+      expect(spawnedPtys).toHaveLength(1);
+    });
+
     it('should not report shutdown-triggered exits as user terminal exits', async () => {
       const { ptyService } = await import('../../../src/main/services/pty.service');
       const window = createMockBrowserWindow({ id: 1 });
@@ -2939,20 +2953,6 @@ describe('PtyService', () => {
 
       pty._simulateExit(0);
       await killed;
-    });
-
-    it('never pauses a terminal started after shutdown began', async () => {
-      const { ptyService, pty } = await spawnReportedTerminal();
-      const killed = ptyService.killAll();
-      pty._simulateExit(0);
-      await killed;
-
-      // Such as a reconnect an exit listener starts while Komla quits.
-      ptyService.restart('term-1', '/home/user', null, 'ws-1', 120, 30);
-      const late = spawnedPtys[1];
-      ptyService.acknowledgeOutput('term-1', 0);
-      late._simulateData('x'.repeat(600_000));
-      expect(late.pause).not.toHaveBeenCalled();
     });
 
     it('never pauses on Windows, where closing a paused ConPTY can hang the main process', async () => {

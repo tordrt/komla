@@ -505,6 +505,7 @@ class PtyService {
     localLoginShell = true,
     addToHistory = false
   ): void {
+    this.refuseWhileQuitting();
     if (this.processes.has(terminalId)) {
       throw new Error(`PTY already exists for terminal ${terminalId}`);
     }
@@ -1382,6 +1383,7 @@ class PtyService {
     localLoginShell = true,
     addToHistory = false
   ): void {
+    this.refuseWhileQuitting();
     const process = this.processes.get(terminalId);
     const windowId = process?.windowId ?? this.terminalToWindow.get(terminalId);
     const initialSeq = process?.seq ?? this.terminalLastSeq.get(terminalId) ?? 0;
@@ -1550,6 +1552,14 @@ class PtyService {
    * `handleExit()` can run normally when the real exit lands. PTYs already
    * exiting are waited for too, since their exit event is just as pending.
    */
+  /**
+   * A window closing at quit can still ask for a terminal once killAll() ran. Nothing would kill
+   * that PTY, and node-pty's thread waiting for its exit would keep Komla from exiting.
+   */
+  private refuseWhileQuitting(): void {
+    if (this.shuttingDown) throw new Error('Komla is quitting, so it starts no terminal');
+  }
+
   killAll(): Promise<void> {
     this.shuttingDown = true;
     const exits: Promise<void>[] = [];

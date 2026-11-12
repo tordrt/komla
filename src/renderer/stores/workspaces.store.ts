@@ -445,6 +445,13 @@ interface WorkspacesState {
   hideProjectGroups: (projectIds: Iterable<string>) => void;
   unhideProjectGroup: (projectId: string) => void;
   unhideProjectGroups: (projectIds: Iterable<string>) => void;
+  /** Lists a new workspace's project again if the sidebar hides it, expanded, so it's in sight. */
+  showProjectOf: (workspace: Pick<Workspace, 'projectId'>) => void;
+  /**
+   * As showProjectOf, for a workspace started outside the New Workspace dialog: a project it lists
+   * again goes to the top, as one a launch from the dialog brought into sight does.
+   */
+  showProjectOfStarted: (workspace: Workspace) => void;
   setDisplayOrderedWorkspaceIds: (ids: string[]) => void;
 
   /** A restored workspace goes to the bottom of the list, unless given its `order` back. */
@@ -1369,15 +1376,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       }
       const workspace = result;
 
-      // Unhide the project if this new workspace belongs to a hidden project
-      if (workspace.projectId && get().hiddenProjectIds.has(workspace.projectId)) {
-        get().unhideProjectGroup(workspace.projectId);
-      }
-
-      // Expand the project group so the new workspace is visible
-      if (workspace.projectId) {
-        useProjectsStore.getState().expandProject(workspace.projectId);
-      }
+      get().showProjectOf(workspace);
 
       // Auto-focus the new workspace unless the user provided an initial prompt
       // (which signals the workspace will run autonomously). Always focus if
@@ -1433,14 +1432,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
         throw workspaceCreateException(result);
       }
 
-      for (const workspace of result) {
-        if (workspace.projectId && get().hiddenProjectIds.has(workspace.projectId)) {
-          get().unhideProjectGroup(workspace.projectId);
-        }
-        if (workspace.projectId) {
-          useProjectsStore.getState().expandProject(workspace.projectId);
-        }
-      }
+      for (const workspace of result) get().showProjectOf(workspace);
 
       await get().loadWorkspaces(result[0]?.id);
       moveProjectsBroughtIntoSight(get(), projectIdsInSight, result);
@@ -2458,6 +2450,23 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
   unhideProjectGroup: (projectId) => {
     get().unhideProjectGroups([projectId]);
+  },
+
+  showProjectOf: ({ projectId }) => {
+    if (!projectId) return;
+    if (get().hiddenProjectIds.has(projectId)) get().unhideProjectGroup(projectId);
+    useProjectsStore.getState().expandProject(projectId);
+  },
+
+  showProjectOfStarted: (workspace) => {
+    const before = getProjectIdsInSightBeforeLaunch(get());
+    get().showProjectOf(workspace);
+    // Counted as listed already, since the list reloads after this.
+    const state = get();
+    const workspaces = state.workspaces.some((listed) => listed.id === workspace.id)
+      ? state.workspaces
+      : [...state.workspaces, workspace];
+    moveProjectsBroughtIntoSight({ ...state, workspaces }, before, [workspace]);
   },
 
   unhideProjectGroups: (projectIds) => {

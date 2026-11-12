@@ -251,6 +251,12 @@ export interface NewWorkspaceDraft {
   launchModeId?: string;
 }
 
+/** What started a workspace that windows hear of as created, sent after the workspace. */
+export interface WorkspaceCreatedOrigin {
+  /** A schedule started it, so nobody asked for it just now. */
+  scheduled?: boolean;
+}
+
 /** An agent's `komla trash`, sent to the window showing its workspace once its turn ends. */
 export interface WorkspaceTrashRequest {
   workspaceId: string;

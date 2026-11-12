@@ -31,6 +31,7 @@ import type {
   HostAutomation,
 } from '../../shared/types/automation';
 import type { Project } from '../../shared/types/project';
+import type { WorkspaceCreatedOrigin } from '../../shared/types/workspace';
 
 export { AutomationService } from './automation/automation-service';
 
@@ -119,7 +120,9 @@ async function launchLocal(
     environment: { kind: 'local' },
     skipRecordUsage: true,
   });
-  windowService.broadcastWhenReady(IPC.WORKSPACE_CREATED, created);
+  // A scheduled run leaves the sidebar as it is; one the user started shows up in it.
+  const origin: WorkspaceCreatedOrigin = { scheduled: request.trigger === 'schedule' };
+  windowService.broadcastWhenReady(IPC.WORKSPACE_CREATED, created, origin);
   return {
     workspaceId: created.id,
     ...(created.branchName ? { branch: created.branchName } : {}),

@@ -7,9 +7,10 @@ import { useAppLifecycle } from '../../../src/renderer/hooks/useAppLifecycle';
 import { useConfigStore } from '../../../src/renderer/stores/config.store';
 import { useProjectsStore } from '../../../src/renderer/stores/projects.store';
 import { useToastStore } from '../../../src/renderer/stores/toast.store';
+import { useWindowStore } from '../../../src/renderer/stores/window.store';
 import { useWorkspacesStore } from '../../../src/renderer/stores/workspaces.store';
 
-import type { Workspace } from '../../../src/renderer/types';
+import type { Project, Workspace } from '../../../src/renderer/types';
 
 const workspace = (id: string, title: string) =>
   ({
@@ -152,7 +153,7 @@ describe('useAppLifecycle', () => {
   // workspace over IPC.
   it('reloads the workspaces once more for a burst of changes, not once for each', async () => {
     const fetches: Array<(workspaces: Workspace[]) => void> = [];
-    const handlers = new Map<string, () => void>();
+    const handlers = new Map<string, (workspace?: Workspace) => void>();
     const api = new Proxy(
       {},
       {
@@ -161,7 +162,7 @@ describe('useAppLifecycle', () => {
             return () => new Promise<Workspace[]>((resolve) => fetches.push(resolve));
           }
           if (key.startsWith('on')) {
-            return (handler: () => void) => {
+            return (handler: (workspace?: Workspace) => void) => {
               handlers.set(key, handler);
               return () => {};
             };
@@ -187,7 +188,7 @@ describe('useAppLifecycle', () => {
 
     act(() => {
       for (let i = 0; i < 4; i++) handlers.get('onWorkspacesChanged')?.();
-      handlers.get('onWorkspaceCreated')?.();
+      handlers.get('onWorkspaceCreated')?.(workspace('ws-3', 'idle'));
     });
     expect(fetches).toHaveLength(1);
 
@@ -200,6 +201,108 @@ describe('useAppLifecycle', () => {
       fetches.shift()?.([]);
     });
     expect(fetches).toHaveLength(0);
+  });
+
+  describe('a workspace created outside this window', () => {
+    const windowId = useWindowStore.getState().windowId;
+    const created = (fields: Partial<Workspace> = {}) =>
+      ({
+        id: 'ws-new',
+        projectId: 'p-hidden',
+        windowId,
+        status: 'active',
+        terminals: [],
+        ...fields,
+      }) as Workspace;
+    const updateConfig = vi.fn().mockResolvedValue(undefined);
+    const updateProject = vi.fn().mockResolvedValue(undefined);
+    const create = async (
+      workspace: Workspace,
+      origin?: { scheduled?: boolean },
+      grouping: 'project' | 'status' = 'project'
+    ) => {
+      const handlers = new Map<string, (...args: unknown[]) => void>();
+      const api = new Proxy(
+        {},
+        {
+          get: (_target, key: string) =>
+            key.startsWith('on')
+              ? (handler: (...args: unknown[]) => void) => {
+                  handlers.set(key, handler);
+                  return () => {};
+                }
+              : key === 'updateConfig'
+                ? updateConfig
+                : key === 'updateProject'
+                  ? updateProject
+                  : vi.fn().mockResolvedValue(key === 'getProjects' ? [] : undefined),
+        }
+      );
+      Object.defineProperty(window, 'api', { value: api, configurable: true });
+      renderHook(() =>
+        useAppLifecycle({
+          sidebarElement: null,
+          mainElement: null,
+          setNewWorkspaceDialogOpen: () => {},
+          setFeedbackOpen: () => {},
+        })
+      );
+      // After the loads it starts with, which set what the sidebar hides.
+      await act(async () => {});
+      useWorkspacesStore.setState({
+        hasLoaded: true,
+        grouping,
+        hideStopped: false,
+        hiddenProjectIds: new Set(['p-hidden', 'p-other']),
+        workspaces: [created({ id: 'ws-shown', projectId: 'p-shown' })],
+      });
+      useProjectsStore.setState({
+        expandedProjectIds: new Set(),
+        projects: [
+          { id: 'p-top', order: 0 },
+          { id: 'p-hidden', order: 1 },
+        ] as Project[],
+      });
+      updateConfig.mockClear();
+      updateProject.mockClear();
+      await act(async () => handlers.get('onWorkspaceCreated')?.(workspace, origin));
+      return useWorkspacesStore.getState().hiddenProjectIds;
+    };
+
+    // As New Workspace does: `komla launch` into a project the sidebar hides would otherwise
+    // start a workspace nobody sees.
+    it('lists its hidden project again, expanded, at the top', async () => {
+      expect(await create(created())).toEqual(new Set(['p-other']));
+      expect(useProjectsStore.getState().expandedProjectIds).toEqual(new Set(['p-hidden']));
+      expect(updateConfig).toHaveBeenCalledWith({ hiddenProjectIds: ['p-other'] });
+      expect(updateProject).toHaveBeenCalledWith('p-hidden', { order: 0 });
+    });
+
+    // A group the user already sees stays where they put it.
+    it('leaves a project in sight where it is', async () => {
+      await create(created({ projectId: 'p-shown' }));
+      expect(updateProject).not.toHaveBeenCalled();
+    });
+
+    // Its place among projects isn't in sight then, so it stays where the user put it.
+    it('leaves the order of projects be in a sidebar grouped by status', async () => {
+      expect(await create(created(), undefined, 'status')).toEqual(new Set(['p-other']));
+      expect(updateProject).not.toHaveBeenCalled();
+    });
+
+    it('leaves the project hidden for a run its schedule started', async () => {
+      expect(await create(created(), { scheduled: true })).toEqual(
+        new Set(['p-hidden', 'p-other'])
+      );
+      expect(updateConfig).not.toHaveBeenCalled();
+      expect(updateProject).not.toHaveBeenCalled();
+    });
+
+    it('leaves the project hidden in a window that does not list the workspace', async () => {
+      expect(await create(created({ windowId: 'another-window' }))).toEqual(
+        new Set(['p-hidden', 'p-other'])
+      );
+    });
   });
 
   describe('an SSH workspace that could not be created', () => {

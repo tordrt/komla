@@ -443,7 +443,12 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         }
       }),
 
-      window.api.onWorkspaceCreated(() => {
+      // One someone asked for, as with `komla launch` or from a phone, comes into sight as one
+      // from New Workspace does. A scheduled run leaves a project the user hid alone.
+      window.api.onWorkspaceCreated((workspace, origin) => {
+        if (!origin?.scheduled && workspace.windowId === useWindowStore.getState().windowId) {
+          useWorkspacesStore.getState().showProjectOfStarted(workspace);
+        }
         void reloadWorkspaces();
       }),
 

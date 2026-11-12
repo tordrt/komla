@@ -161,6 +161,7 @@ import type { ViewerFile, ViewerFileSource, ViewerFolderFile } from '../shared/t
 import type {
   NewWorkspaceDraft,
   OpenDevPreviewEvent,
+  WorkspaceCreatedOrigin,
   WorkspaceTrashRequest,
 } from '../shared/types/workspace';
 
@@ -1531,9 +1532,15 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_NEEDS_ATTENTION, handler);
   },
 
-  onWorkspaceCreated: (callback: (workspace: Workspace) => void): (() => void) => {
-    const handler = (_: Electron.IpcRendererEvent, workspace: Workspace): void => {
-      callback(workspace);
+  onWorkspaceCreated: (
+    callback: (workspace: Workspace, origin?: WorkspaceCreatedOrigin) => void
+  ): (() => void) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      workspace: Workspace,
+      origin?: WorkspaceCreatedOrigin
+    ): void => {
+      callback(workspace, origin);
     };
     ipcRenderer.on(IPC.WORKSPACE_CREATED, handler);
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_CREATED, handler);

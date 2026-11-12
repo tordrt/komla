@@ -34,25 +34,52 @@ vi.mock('../../../../src/renderer/components/ui/dialog', () => ({
     dialog.onOpenChange = onOpenChange;
     return open ? <div>{children}</div> : null;
   },
-  DialogContent: ({
-    children,
-    onPointerDownOutside,
-    onFocusOutside,
-    onInteractOutside,
-    onCloseAutoFocus,
-  }: React.PropsWithChildren<{
-    onPointerDownOutside?: (event: Event) => void;
-    onFocusOutside?: (event: Event) => void;
-    onInteractOutside?: (event: Event) => void;
-    onCloseAutoFocus?: (event: Event) => void;
-  }>) => {
-    // Radix moves focus back once the dialog closes, unless the handler prevents it.
+  DialogContent: React.forwardRef<
+    HTMLDivElement,
+    React.PropsWithChildren<{
+      onPointerDownOutside?: (event: Event) => void;
+      onOpenAutoFocus?: (event: Event) => void;
+      onFocusOutside?: (event: Event) => void;
+      onInteractOutside?: (event: Event) => void;
+      onCloseAutoFocus?: (event: Event) => void;
+    }>
+  >(function DialogContent(
+    {
+      children,
+      onPointerDownOutside,
+      onOpenAutoFocus,
+      onFocusOutside,
+      onInteractOutside,
+      onCloseAutoFocus,
+    },
+    ref
+  ) {
+    const content = React.useRef<HTMLDivElement | null>(null);
+    // Radix focuses the first focusable element once the dialog opens, unless the handler prevents
+    // it or focus is already inside, and moves focus back to what had it once the dialog closes,
+    // unless that handler prevents it.
     const closeAutoFocus = React.useRef(onCloseAutoFocus);
     closeAutoFocus.current = onCloseAutoFocus;
-    React.useEffect(
-      () => () => closeAutoFocus.current?.(new Event('closeautofocus', { cancelable: true })),
-      []
-    );
+    React.useEffect(() => {
+      const focusedBefore = document.activeElement as HTMLElement | null;
+      const element = content.current;
+      if (element) {
+        const event = new Event('openautofocus', { cancelable: true });
+        const handler = (dispatched: Event) => onOpenAutoFocus?.(dispatched);
+        element.addEventListener('openautofocus', handler);
+        element.dispatchEvent(event);
+        element.removeEventListener('openautofocus', handler);
+        if (!event.defaultPrevented && !element.contains(document.activeElement)) {
+          element.querySelector<HTMLElement>('button')?.focus();
+        }
+      }
+      return () => {
+        const event = new Event('closeautofocus', { cancelable: true });
+        closeAutoFocus.current?.(event);
+        if (!event.defaultPrevented) focusedBefore?.focus();
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     // Radix closes the dialog on an outside press or focus unless a handler prevents it.
     const outside = (handler?: (event: Event) => void) => () => {
       const event = new Event('interactoutside', { cancelable: true });
@@ -61,13 +88,21 @@ vi.mock('../../../../src/renderer/components/ui/dialog', () => ({
       if (!event.defaultPrevented) dialog.onOpenChange?.(false);
     };
     return (
-      <div>
+      <div
+        ref={(element) => {
+          content.current = element;
+          if (typeof ref === 'function') ref(element);
+          else if (ref) ref.current = element;
+        }}
+        tabIndex={-1}
+        data-testid="dialog-content"
+      >
         {children}
         <button onClick={outside(onPointerDownOutside)}>Outside</button>
         <button onClick={outside(onFocusOutside)}>Focus outside</button>
       </div>
     );
-  },
+  }),
   DialogHeader: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogFooter: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogDescription: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
@@ -448,13 +483,91 @@ describe('SettingsApprovalDialog', () => {
     expect(openWorkspace).toHaveBeenCalledWith(workspace, 'window-1', undefined);
   });
 
-  it('cancels when the user presses Escape', () => {
+  it('waits in the corner, without cancelling, when the user presses Escape', () => {
     render(<SettingsApprovalDialog />);
     act(() => onRequested?.({ ...appearancePrompt, id: 'approval-6', preview: undefined }));
 
     act(() => dialog.onOpenChange?.(false));
 
-    expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-6', 'cancel');
+    expect(resolveSettingsApproval).not.toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: 'Settings changes waiting' })).toBeInTheDocument();
+  });
+
+  it('gives focus back to what had it when the user presses Escape', () => {
+    render(
+      <>
+        <textarea aria-label="Terminal input" />
+        <SettingsApprovalDialog />
+      </>
+    );
+    const terminal = screen.getByRole('textbox', { name: 'Terminal input' });
+    terminal.focus();
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-15', preview: undefined }));
+
+    act(() => dialog.onOpenChange?.(false));
+
+    expect(terminal).toHaveFocus();
+  });
+
+  it('gives focus back to what had it when the user presses Escape after looking around', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <textarea aria-label="Terminal input" />
+        <SettingsApprovalDialog />
+      </>
+    );
+    const terminal = screen.getByRole('textbox', { name: 'Terminal input' });
+    terminal.focus();
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-19', preview: undefined }));
+    await user.click(screen.getByRole('button', { name: 'Look around first' }));
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    await user.click(within(waiting).getByRole('button', { name: 'Review' }));
+
+    act(() => dialog.onOpenChange?.(false));
+
+    expect(terminal).toHaveFocus();
+  });
+
+  it('stays open when the user presses Escape while a decision goes through', async () => {
+    resolveSettingsApproval.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-16', preview: undefined }));
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+
+    act(() => dialog.onOpenChange?.(false));
+
+    expect(screen.getByRole('button', { name: 'Applying…' })).toBeInTheDocument();
+  });
+
+  it('decides nothing when the user presses Enter or Space as it opens', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-14', preview: undefined }));
+
+    expect(screen.getByTestId('dialog-content')).toHaveFocus();
+    await user.keyboard('{Enter} ');
+
+    expect(resolveSettingsApproval).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Review settings changes' })).toBeInTheDocument();
+  });
+
+  it('decides nothing when the user presses Enter again as the next request takes its place', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => {
+      onRequested?.({ ...appearancePrompt, id: 'approval-17', preview: undefined });
+      onRequested?.({ ...appearancePrompt, id: 'approval-18', target: 'Agents', preview: undefined });
+    });
+    screen.getByRole('button', { name: 'Apply changes' }).focus();
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(screen.getByText('Agents')).toBeInTheDocument());
+    await user.keyboard('{Enter}');
+
+    expect(resolveSettingsApproval).toHaveBeenCalledOnce();
+    expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-17', 'apply');
   });
 
   it('restores the saved appearance when the agent stops waiting', async () => {

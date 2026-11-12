@@ -256,6 +256,9 @@ function useToastsAbove(card: RefObject<HTMLElement | null>): void {
   }, [card]);
 }
 
+const waitingCardOverlay = 'settings-approval';
+const waitingCardSelector = `[data-native-overlay="${waitingCardOverlay}"]`;
+
 /** What stays on screen while the user looks around Komla before deciding. */
 function WaitingCard({
   prompt,
@@ -282,7 +285,7 @@ function WaitingCard({
       ref={cardRef}
       aria-labelledby={titleId}
       // A browser preview under the card steps aside for it, as for a dialog.
-      data-native-overlay="settings-approval"
+      data-native-overlay={waitingCardOverlay}
       className="floating-surface fixed right-4 bottom-[calc(1rem_+_var(--status-bar-height,0px)_+_var(--window-banner-inset,0px))] z-50 w-80 rounded-[calc(var(--radius)+2px)] border p-3 shadow-xl animate-in fade-in-0"
     >
       <div className="flex items-start gap-2.5">
@@ -367,6 +370,9 @@ export function SettingsApprovalDialog() {
     };
   }, []);
 
+  // Set once a decision made here goes through, so the request after it gets focus moved off the
+  // button that decided.
+  const decidedRef = useRef(false);
   const decide = async (decision: SettingsApprovalDecision): Promise<void> => {
     if (!active || submitting) return;
     const id = active.id;
@@ -374,6 +380,7 @@ export function SettingsApprovalDialog() {
     setError(null);
     try {
       await window.api.resolveSettingsApproval(id, decision);
+      decidedRef.current = true;
       setQueue((current) => current.filter((prompt) => prompt.id !== id));
     } catch (decisionError) {
       // The error shows in the dialog, not the card.
@@ -388,19 +395,37 @@ export function SettingsApprovalDialog() {
     }
   };
 
-  // Where focus goes once the dialog steps aside: left where the user went, or to the card, since
-  // what had it before the dialog opened may be gone, such as the card's own Review button.
-  const focusAfterStepAwayRef = useRef<'left' | 'card' | null>(null);
+  // Where focus goes once the dialog steps aside: left where the user went, to the card, or back
+  // to what had it before the dialog opened, as after Escape. Radix's own return can't do that
+  // last one: reopened from the card, the dialog would return focus to the card's Review button,
+  // which is gone by then.
+  const focusAfterStepAwayRef = useRef<'left' | 'card' | 'restore' | null>(null);
+  const focusedBeforeRef = useRef<HTMLElement | null>(null);
   const reviewRef = useRef<HTMLButtonElement>(null);
-  const stepAway = (focusMovedOn = false) => {
+  const stepAway = (focus: 'left' | 'card' | 'restore' = 'card') => {
     if (!active) return;
-    focusAfterStepAwayRef.current = focusMovedOn ? 'left' : 'card';
+    focusAfterStepAwayRef.current = focus;
     setSteppedAwayFromId(active.id);
   };
 
+  // The dialog opens while the user may be typing elsewhere, so a stray Enter or Space lands on the
+  // dialog itself rather than on a button that decides.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const focusContent = () => contentRef.current?.focus();
+  // The next request takes the place of one just decided without the dialog closing, so focus
+  // leaves the button that decided it, which a second Enter would otherwise press for this one.
+  const activeId = active?.id;
+  useEffect(() => {
+    const decided = decidedRef.current;
+    decidedRef.current = false;
+    if (activeId && decided && contentRef.current?.contains(document.activeElement)) {
+      focusContent();
+    }
+  }, [activeId]);
+
   const showSource = () => {
     if (!source) return;
-    stepAway(true);
+    stepAway('left');
     void openWorkspace(source.workspace, currentWindowId, source.terminal?.id);
   };
 
@@ -419,11 +444,14 @@ export function SettingsApprovalDialog() {
       )}
       <Dialog
         open={Boolean(active) && !steppedAway}
+        // Escape, often meant for the terminal the dialog opened over, steps aside and gives that
+        // terminal its focus back rather than cancelling; only the Cancel buttons cancel.
         onOpenChange={(open) => {
-          if (!open) void decide('cancel');
+          if (!open && submitting === null) stepAway('restore');
         }}
       >
         <DialogContent
+          ref={contentRef}
           // One column no wider than the dialog, so a long workspace title truncates rather than
           // widening it.
           className="max-w-2xl grid-cols-1 gap-0 overflow-hidden p-0"
@@ -433,7 +461,21 @@ export function SettingsApprovalDialog() {
           // Clicking Komla behind the dialog means looking around before deciding, not cancelling.
           onPointerDownOutside={(event) => {
             event.preventDefault();
-            stepAway(true);
+            stepAway('left');
+          }}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            // Reopened from the card, whose Review button had focus and is gone by now, what had
+            // focus before is still what the dialog first took it from.
+            const focused = document.activeElement;
+            if (
+              focused instanceof HTMLElement &&
+              focused !== document.body &&
+              !focused.closest(waitingCardSelector)
+            ) {
+              focusedBeforeRef.current = focused;
+            }
+            focusContent();
           }}
           // Focus leaving on its own, as when a terminal takes it, is neither.
           onFocusOutside={(event) => event.preventDefault()}
@@ -443,7 +485,9 @@ export function SettingsApprovalDialog() {
             focusAfterStepAwayRef.current = null;
             if (!focusAfter) return;
             event.preventDefault();
-            if (focusAfter === 'card') reviewRef.current?.focus();
+            const focusedBefore = focusedBeforeRef.current;
+            if (focusAfter === 'restore' && focusedBefore?.isConnected) focusedBefore.focus();
+            else if (focusAfter !== 'left') reviewRef.current?.focus();
           }}
         >
           {active && (
@@ -598,13 +642,12 @@ export function SettingsApprovalDialog() {
                   variant="ghost"
                   className="sm:mr-auto"
                   disabled={submitting !== null}
-                  onClick={() => stepAway()}
+                  onClick={() => stepAway('card')}
                 >
                   Look around first
                 </Button>
                 <Button
                   variant="outline"
-                  autoFocus
                   disabled={submitting !== null}
                   onClick={() => void decide('cancel')}
                 >

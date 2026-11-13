@@ -514,7 +514,7 @@ describe('git IPC behavior', () => {
       ipcMain._invoke('workspace:restore-file', 'ws-ssh', 'odd\nname.ts', 'modified')
     ).rejects.toThrow('remote failed');
     expect(mockWorkspaceStatusService.change).toHaveBeenCalledWith({
-      kind: 'repository-mutated',
+      kind: 'refresh-requested',
       workspaceId: 'ws-ssh',
     });
   });

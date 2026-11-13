@@ -23,6 +23,7 @@ const mockSshWorkspaceService = {
   listBranches: vi.fn(),
   getCommitGraph: vi.fn(),
   commitChanges: vi.fn(),
+  mergeToTargetBranch: vi.fn(),
   pushTargetBranch: vi.fn(),
 };
 
@@ -294,6 +295,9 @@ describe('workspaceGitService', () => {
       backend,
     });
     mockSshWorkspaceService.commitChanges.mockRejectedValue(new Error('commit failed'));
+    // A host that fails an operation may not answer the status read after it either, and
+    // the failure is reported without waiting for that read to time out.
+    mockWorkspaceStatusService.change.mockReturnValue(new Promise(() => {}));
     const { workspaceGitService } =
       await import('../../../src/main/services/workspace-git.service');
 
@@ -304,8 +308,80 @@ describe('workspaceGitService', () => {
       })
     ).rejects.toThrow('commit failed');
     expect(mockWorkspaceStatusService.change).toHaveBeenCalledWith({
-      kind: 'repository-mutated',
+      kind: 'refresh-requested',
       workspaceId: 'ssh-workspace',
+    });
+  });
+
+  // The companion's watcher may be down, as when the host is out of inotify instances, and
+  // then the badge kept counting a commit already fast-forwarded into the target.
+  it('reads fresh SSH status from the host after landing, without waiting for the watcher', async () => {
+    mockWorkspaceService.get.mockReturnValue({
+      id: 'ssh-workspace',
+      workingDirectory: 'ssh://host-1/remote/repo',
+      backend: {
+        kind: 'ssh',
+        hostId: 'host-1',
+        remoteDirectory: '/remote/repo',
+        remoteRepoPath: '/remote/repo.git',
+        remoteProjectRoot: '/remote',
+        gitUrl: 'git@example.com:repo.git',
+      },
+    });
+    mockSshWorkspaceService.mergeToTargetBranch.mockResolvedValue({
+      success: true,
+      message: 'Fast-forwarded main to feature',
+    });
+    mockSshWorkspaceService.pushTargetBranch.mockResolvedValue({
+      success: false,
+      message: 'Remote has new commits',
+      errorCode: 'rejected',
+    });
+    const { workspaceGitService } =
+      await import('../../../src/main/services/workspace-git.service');
+
+    await workspaceGitService.mergeToTargetBranch('ssh-workspace');
+    expect(mockWorkspaceStatusService.change).toHaveBeenCalledTimes(1);
+    expect(mockWorkspaceStatusService.change).toHaveBeenCalledWith({
+      kind: 'refresh-requested',
+      workspaceId: 'ssh-workspace',
+    });
+
+    mockWorkspaceStatusService.change.mockClear();
+    await workspaceGitService.pushTargetBranch('ssh-workspace');
+    expect(mockWorkspaceStatusService.change).toHaveBeenCalledTimes(1);
+    // A push changes no files, so a local copy syncs only for changes the refresh finds.
+    expect(mockWorkspaceStatusService.change).toHaveBeenCalledWith({
+      kind: 'refresh-requested',
+      workspaceId: 'ssh-workspace',
+      reason: 'fetched',
+    });
+  });
+
+  it("returns an SSH operation's result when the status refresh after it fails", async () => {
+    mockWorkspaceService.get.mockReturnValue({
+      id: 'ssh-workspace',
+      workingDirectory: 'ssh://host-1/remote/repo',
+      backend: {
+        kind: 'ssh',
+        hostId: 'host-1',
+        remoteDirectory: '/remote/repo',
+        remoteRepoPath: '/remote/repo.git',
+        remoteProjectRoot: '/remote',
+        gitUrl: 'git@example.com:repo.git',
+      },
+    });
+    mockSshWorkspaceService.mergeToTargetBranch.mockResolvedValue({
+      success: true,
+      message: 'Fast-forwarded main to feature',
+    });
+    mockWorkspaceStatusService.change.mockRejectedValue(new Error('host unreachable'));
+    const { workspaceGitService } =
+      await import('../../../src/main/services/workspace-git.service');
+
+    await expect(workspaceGitService.mergeToTargetBranch('ssh-workspace')).resolves.toEqual({
+      success: true,
+      message: 'Fast-forwarded main to feature',
     });
   });
 

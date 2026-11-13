@@ -287,7 +287,12 @@ class WorkspaceGitService {
     onLocalProjectSync?: WorkspaceGitLocalSyncProgress
   ): Promise<WorkspaceGitPushResult> {
     const workspace = this.getWorkspace(workspaceId);
-    const result = await this.getAdapter(workspace).push(workspace);
+    // A push moves only origin's refs, so a local copy has no files to sync.
+    const result = await this.runMutationWithWorkspace(
+      workspace,
+      () => this.getAdapter(workspace).push(workspace),
+      'fetched'
+    );
     return this.syncLocalProjectAfterSshPush(workspace, result, onLocalProjectSync);
   }
 
@@ -300,7 +305,12 @@ class WorkspaceGitService {
     onLocalProjectSync?: WorkspaceGitLocalSyncProgress
   ): Promise<WorkspaceGitPushResult> {
     const workspace = this.getWorkspace(workspaceId);
-    const result = await this.getAdapter(workspace).pushTargetBranch(workspace);
+    // A push moves only origin's refs, so a local copy has no files to sync.
+    const result = await this.runMutationWithWorkspace(
+      workspace,
+      () => this.getAdapter(workspace).pushTargetBranch(workspace),
+      'fetched'
+    );
     return this.syncLocalProjectAfterSshPush(workspace, result, onLocalProjectSync);
   }
 
@@ -363,17 +373,37 @@ class WorkspaceGitService {
 
   private async runMutationWithWorkspace<T>(
     workspace: Workspace,
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    refreshReason?: 'fetched'
   ): Promise<T> {
     if (workspace.backend?.kind !== 'ssh') return operation();
+    // Read the result from the host rather than wait for the companion's watcher, which
+    // may be down, as on a host out of inotify instances.
+    const refresh = () =>
+      workspaceStatusService
+        .change({
+          kind: 'refresh-requested',
+          workspaceId: workspace.id,
+          ...(refreshReason ? { reason: refreshReason } : {}),
+        })
+        .catch((error: unknown) => {
+          logger.warn('could not refresh SSH workspace status after a Git operation', {
+            workspaceId: workspace.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    let result: T;
     try {
-      return await operation();
-    } finally {
-      await workspaceStatusService.change({
-        kind: 'repository-mutated',
-        workspaceId: workspace.id,
-      });
+      result = await operation();
+    } catch (error) {
+      // A host that failed the operation may not answer the read either, so the failure is
+      // reported without waiting for it.
+      void refresh();
+      throw error;
     }
+    // The status is current by the time the result is shown.
+    await refresh();
+    return result;
   }
 
   private async syncLocalProjectAfterSshPush(

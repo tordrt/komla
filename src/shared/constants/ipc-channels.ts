@@ -29,6 +29,7 @@ export const IPC = {
   WORKSPACE_REORDER: 'workspace:reorder',
   WORKSPACE_GENERATE_BRANCH_NAME: 'workspace:generate-branch-name',
   WORKSPACE_SELECT_PROMPT_ATTACHMENTS: 'workspace:select-prompt-attachments',
+  WORKSPACE_STAGE_PROMPT_ATTACHMENTS: 'workspace:stage-prompt-attachments',
   WORKSPACE_REGENERATE_NAME: 'workspace:regenerate-name',
   WORKSPACE_CANCEL_BRANCH_NAMING: 'workspace:cancel-branch-naming',
   WORKSPACE_MOVE_TO_WINDOW: 'workspace:move-to-window',

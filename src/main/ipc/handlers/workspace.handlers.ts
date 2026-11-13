@@ -23,6 +23,7 @@ import { localCopyService } from '../../services/local-copy.service';
 import { projectService } from '../../services/project.service';
 import { sshPortForwardService } from '../../services/ssh-port-forward.service';
 import { sshWorkspaceService } from '../../services/ssh-workspace.service';
+import { stagePromptAttachments } from '../../services/workspace/staged-attachments';
 import {
   workspaceLinksService,
   type WorkspaceLinkPath,
@@ -524,6 +525,10 @@ export function registerWorkspaceHandlers(): void {
     );
     return result.filePaths.filter((_, i) => isFile[i]);
   });
+
+  handleIpc(IPC.WORKSPACE_STAGE_PROMPT_ATTACHMENTS, (_, [paths]): Promise<string[]> =>
+    stagePromptAttachments(paths)
+  );
 
   handleIpc(IPC.WORKSPACE_LINK_PATHS, (_, [workspaceId]): Promise<WorkspaceLinkPath[]> =>
     workspaceLinksService.listLinkPaths(workspaceId)

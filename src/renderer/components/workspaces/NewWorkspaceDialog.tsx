@@ -2047,8 +2047,19 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     }
   };
 
+  // The file each copy of a dropped file was made from, so adding that file again, however it's
+  // added, doesn't attach it twice.
+  const stagedSourcesRef = useRef(new Map<string, string>());
+  const sourceOf = (path: string) => stagedSourcesRef.current.get(path) ?? path;
+
   const attachFiles = (paths: string[]) => {
-    setAttachments((current) => addPromptAttachments(current, paths));
+    setAttachments((current) => {
+      const attached = new Set(current.map(sourceOf));
+      return addPromptAttachments(
+        current,
+        paths.filter((path) => !attached.has(path))
+      );
+    });
   };
 
   const attachTransferFiles = (files: TransferFile[]) => {
@@ -2096,8 +2107,33 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       });
   };
 
+  // A drop attaches its files at once and then swaps in copies of them: some apps, like the iOS
+  // Simulator, drop a temporary file that's deleted before the workspace is created. Launching
+  // before the copies are made takes the files where they are.
   const isDraggingFiles = useWindowFileDrop(open && hasAgent, (dataTransfer) => {
-    attachTransferFiles(getTransferFiles(dataTransfer, window.api.getPathForFile));
+    void readableFilePaths(getTransferFiles(dataTransfer, window.api.getPathForFile)).then(
+      (paths) => {
+        const attached = new Set(attachments.map(sourceOf));
+        const fresh = [...new Set(paths)]
+          .filter((path) => !attached.has(path))
+          .slice(0, Math.max(0, MAX_PROMPT_ATTACHMENTS - attachments.length));
+        if (fresh.length === 0) return;
+        attachFiles(fresh);
+        void window.api
+          .stagePromptAttachments(fresh)
+          .then((staged) => {
+            const copies = new Map(fresh.map((source, i) => [source, staged[i]]));
+            for (const [source, copy] of copies) stagedSourcesRef.current.set(copy, source);
+            const swap = (current: string[]) => current.map((path) => copies.get(path) ?? path);
+            // An attachment removed meanwhile has no path left to swap. One the dialog put
+            // aside, as it closed or after a failed launch, is swapped where it was put.
+            setAttachments(swap);
+            const dialogs = useDialogsStore.getState();
+            dialogs.setNewWorkspaceDialogAttachments(swap(dialogs.newWorkspaceDialogAttachments));
+          })
+          .catch((err) => console.warn('Failed to copy dropped files aside:', err));
+      }
+    );
     promptTextareaRef.current?.focus();
   });
 

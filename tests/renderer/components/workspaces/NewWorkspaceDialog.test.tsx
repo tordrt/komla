@@ -688,6 +688,10 @@ describe('NewWorkspaceDialog', () => {
         getData: () => text ?? '',
       };
     };
+    beforeEach(() => {
+      window.api.stagePromptAttachments = vi.fn(async (paths: string[]) => paths);
+    });
+
     const attachmentNames = () =>
       within(screen.queryByRole('list', { name: 'Attachments' }) ?? document.createElement('ul'))
         .queryAllByRole('listitem')
@@ -767,6 +771,125 @@ describe('NewWorkspaceDialog', () => {
       await waitFor(() =>
         expect(mockCreateWorkspace).toHaveBeenCalledWith(
           expect.objectContaining({ attachments: ['C:\\logs\\log.txt'] })
+        )
+      );
+    });
+
+    it('launches with copies of dropped files, made as they are dropped', async () => {
+      // The iOS Simulator deletes a dragged screenshot soon after the drop.
+      window.api.stagePromptAttachments = vi.fn(async (paths: string[]) =>
+        paths.map((path) => `/staged/${path.split('/').pop()}`)
+      );
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      fireEvent.drop(textarea, {
+        dataTransfer: transfer([
+          { name: 'simulator_screenshot.png', path: '/tmp/drag/simulator_screenshot.png' },
+        ]),
+      });
+
+      await waitFor(() =>
+        expect(screen.getByTitle('/staged/simulator_screenshot.png')).toBeInTheDocument()
+      );
+      expect(attachmentNames()).toEqual(['simulator_screenshot.png']);
+      expect(window.api.stagePromptAttachments).toHaveBeenCalledWith([
+        '/tmp/drag/simulator_screenshot.png',
+      ]);
+      await user.click(getLaunchButton());
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(
+          expect.objectContaining({ attachments: ['/staged/simulator_screenshot.png'] })
+        )
+      );
+    });
+
+    it('attaches a file dropped twice once, and only as many dropped files as fit', async () => {
+      // Each staging makes a copy of its own, as the real one does.
+      let copies = 0;
+      window.api.stagePromptAttachments = vi.fn(async (paths: string[]) =>
+        paths.map((path) => `/staged/${++copies}/${path.split('/').pop()}`)
+      );
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      const shot = { name: 'shot.png', path: '/Users/me/shot.png' };
+
+      fireEvent.drop(textarea, { dataTransfer: transfer([shot]) });
+      await waitFor(() => expect(screen.getByTitle('/staged/1/shot.png')).toBeInTheDocument());
+      fireEvent.drop(textarea, { dataTransfer: transfer([shot]) });
+
+      const many = Array.from({ length: 25 }, (_, i) => ({
+        name: `f${i}.txt`,
+        path: `/docs/f${i}.txt`,
+      }));
+      fireEvent.drop(textarea, { dataTransfer: transfer(many) });
+
+      await waitFor(() => expect(window.api.stagePromptAttachments).toHaveBeenCalledTimes(2));
+      // The second drop of shot.png staged nothing; the 25 files staged as many as fit.
+      expect(window.api.stagePromptAttachments).toHaveBeenLastCalledWith(
+        many.slice(0, MAX_PROMPT_ATTACHMENTS - 1).map(({ path }) => path)
+      );
+      await waitFor(() => expect(attachmentNames()).toHaveLength(MAX_PROMPT_ATTACHMENTS));
+      expect(attachmentNames().filter((name) => name === 'shot.png')).toHaveLength(1);
+    });
+
+    it('does not attach a dropped file again when it is picked after its copy is made', async () => {
+      window.api.stagePromptAttachments = vi.fn(async (paths: string[]) =>
+        paths.map((path) => `/staged/${path.split('/').pop()}`)
+      );
+      window.api.selectPromptAttachments = vi.fn().mockResolvedValue(['/Users/me/shot.png']);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      fireEvent.drop(textarea, {
+        dataTransfer: transfer([{ name: 'shot.png', path: '/Users/me/shot.png' }]),
+      });
+      await waitFor(() => expect(screen.getByTitle('/staged/shot.png')).toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: /attach files/i }));
+
+      await waitFor(() => expect(window.api.selectPromptAttachments).toHaveBeenCalled());
+      await act(async () => {});
+      expect(attachmentNames()).toEqual(['shot.png']);
+    });
+
+    it('keeps the copy of a dropped file made after the dialog closed', async () => {
+      let finishCopy: (paths: string[]) => void = () => {};
+      window.api.stagePromptAttachments = vi.fn(
+        () => new Promise<string[]>((resolve) => (finishCopy = resolve))
+      );
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      fireEvent.drop(textarea, {
+        dataTransfer: transfer([{ name: 'shot.png', path: '/tmp/drag/shot.png' }]),
+      });
+      await waitFor(() => expect(attachmentNames()).toEqual(['shot.png']));
+
+      // Opening Voice settings closes the dialog the way a user does.
+      await user.click(screen.getByRole('button', { name: 'Voice settings…' }));
+      expect(mockDialogAttachments.value).toEqual(['/tmp/drag/shot.png']);
+      await act(async () => finishCopy(['/staged/shot.png']));
+
+      expect(mockDialogAttachments.value).toEqual(['/staged/shot.png']);
+    });
+
+    it('launches with a dropped file where it is while its copy is still being made', async () => {
+      window.api.stagePromptAttachments = vi.fn(() => new Promise<string[]>(() => {}));
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      fireEvent.drop(textarea, {
+        dataTransfer: transfer([{ name: 'shot.png', path: '/Users/me/shot.png' }]),
+      });
+      await waitFor(() => expect(attachmentNames()).toEqual(['shot.png']));
+      await user.click(getLaunchButton());
+
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(
+          expect.objectContaining({ attachments: ['/Users/me/shot.png'] })
         )
       );
     });
@@ -3090,10 +3213,9 @@ describe('NewWorkspaceDialog', () => {
 
     it('suggests the most recently used skill first among those matching alike', async () => {
       useSkillUsageStore.setState({ lastUsed: { 'skill:codex:review-pr': 1 } });
-      window.api.listAgentSkills = vi.fn().mockResolvedValue([
-        ...skills,
-        { name: 'retry', description: '', source: 'user' },
-      ]);
+      window.api.listAgentSkills = vi
+        .fn()
+        .mockResolvedValue([...skills, { name: 'retry', description: '', source: 'user' }]);
       const user = userEvent.setup();
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
@@ -3101,10 +3223,11 @@ describe('NewWorkspaceDialog', () => {
       await user.type(textarea, '$re');
       const suggestions = await screen.findByRole('listbox', { name: 'Suggestions' });
       await waitFor(() =>
-        expect(within(suggestions).getAllByRole('option').map((o) => o.textContent)).toEqual([
-          expect.stringContaining('$review-pr'),
-          expect.stringContaining('$retry'),
-        ])
+        expect(
+          within(suggestions)
+            .getAllByRole('option')
+            .map((o) => o.textContent)
+        ).toEqual([expect.stringContaining('$review-pr'), expect.stringContaining('$retry')])
       );
       await user.keyboard('{Tab}');
 

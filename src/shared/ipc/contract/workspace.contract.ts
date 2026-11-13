@@ -43,6 +43,7 @@ import {
   workspaceStopSshPreviewForwardArgsSchema,
   workspaceStartSshLinkForwardArgsSchema,
   workspaceStopSshLinkForwardArgsSchema,
+  stagePromptAttachmentsArgsSchema,
 } from '../schemas/workspace-ipc.schemas';
 
 import { invoke } from './define';
@@ -120,6 +121,9 @@ export const workspaceContract = {
     string | null
   >(),
   [IPC.WORKSPACE_SELECT_PROMPT_ATTACHMENTS]: invoke().returns<string[]>(),
+  [IPC.WORKSPACE_STAGE_PROMPT_ATTACHMENTS]: invoke(stagePromptAttachmentsArgsSchema).returns<
+    string[]
+  >(),
   [IPC.WORKSPACE_REGENERATE_NAME]: invoke(regenerateWorkspaceNameArgsSchema).returns<Workspace>(),
   [IPC.WORKSPACE_CANCEL_BRANCH_NAMING]: invoke().returns<void>(),
   [IPC.WORKSPACE_LINK]: invoke(workspaceLinkArgsSchema).returns<void>(),

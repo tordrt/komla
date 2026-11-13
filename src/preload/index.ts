@@ -304,6 +304,9 @@ const api = {
   /** Asks for files to attach to a new workspace's prompt; none when cancelled. */
   selectPromptAttachments: (): Promise<string[]> =>
     ipcRenderer.invoke(IPC.WORKSPACE_SELECT_PROMPT_ATTACHMENTS),
+  /** Copies files dropped on the new-workspace prompt aside and returns the copies' paths. */
+  stagePromptAttachments: (paths: string[]): Promise<string[]> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_STAGE_PROMPT_ATTACHMENTS, paths),
 
   regenerateWorkspaceName: (workspaceId: string): Promise<Workspace> =>
     ipcRenderer.invoke(IPC.WORKSPACE_REGENERATE_NAME, workspaceId),

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { readdirSync, writeFileSync, rmSync, mkdirSync, statSync } from 'fs';
+import { writeFileSync, rmSync, mkdirSync } from 'fs';
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
@@ -17,6 +17,7 @@ import { getKomlaBasePath } from '../../services/paths';
 import { ptyService } from '../../services/pty.service';
 import { resourceUsageService } from '../../services/resource-usage/resource-usage.service';
 import { updateService } from '../../services/update.service';
+import { newStagedAttachmentDir } from '../../services/workspace/staged-attachments';
 import { workspaceFileService } from '../../services/workspace-file.service';
 import { workspaceService } from '../../services/workspace.service';
 import { worktreeWatcherService } from '../../services/worktree-watcher.service';
@@ -67,12 +68,9 @@ async function readClipboardImage(): Promise<NativeImage | null> {
   return null;
 }
 
-// Long enough for a draft that keeps a pasted image to still find it.
-const STAGED_IMAGE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
 /**
  * Saves the clipboard image for a prompt whose workspace doesn't exist yet; creating
- * the workspace imports it. Each image gets its own folder so it keeps its name.
+ * the workspace imports it.
  */
 export async function stageClipboardImage(now = new Date()): Promise<string | null> {
   const image = await readClipboardImage();
@@ -81,22 +79,7 @@ export async function stageClipboardImage(now = new Date()): Promise<string | nu
   const png = image.toPNG();
   if (png.length === 0) return null;
 
-  const stagingDir = join(app.getPath('temp'), 'komla-clipboard-images', 'staged');
-  mkdirSync(stagingDir, { recursive: true });
-  for (const entry of readdirSync(stagingDir, { withFileTypes: true })) {
-    const entryPath = join(stagingDir, entry.name);
-    try {
-      if (now.getTime() - statSync(entryPath).mtimeMs > STAGED_IMAGE_MAX_AGE_MS) {
-        rmSync(entryPath, { recursive: true, force: true });
-      }
-    } catch {
-      // Gone already, or not ours to remove.
-    }
-  }
-
-  const imageDir = join(stagingDir, randomUUID());
-  mkdirSync(imageDir);
-  const imagePath = join(imageDir, clipboardImagePreferredName(now));
+  const imagePath = join(newStagedAttachmentDir(now), clipboardImagePreferredName(now));
   writeFileSync(imagePath, png);
   return imagePath;
 }

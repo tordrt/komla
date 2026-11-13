@@ -1,12 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { basename, dirname, join } from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -107,8 +99,6 @@ const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 const mockRmSync = vi.mocked(rmSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
-const mockReaddirSync = vi.mocked(readdirSync);
-const mockStatSync = vi.mocked(statSync);
 
 describe('app IPC behavior', () => {
   beforeEach(() => {
@@ -345,37 +335,12 @@ describe('app IPC behavior', () => {
 
     const result = (await ipcMain._invoke('clipboard:stage-image')) as string;
 
-    // <temp>/komla-clipboard-images/staged/<id>/clipboard-image-….png
-    expect(dirname(dirname(result))).toBe(join('/mock/temp/komla-clipboard-images/staged'));
+    // <userData>/staged-attachments/<id>/clipboard-image-….png
+    expect(dirname(dirname(result))).toBe(join('/mock/userData/staged-attachments'));
     expect(basename(result)).toMatch(/^clipboard-image-.*\.png$/);
     expect(mockWriteFileSync).toHaveBeenCalledWith(result, png);
     expect(mockWorkspaceFileService.importExternalFile).not.toHaveBeenCalled();
     expect(mockRmSync).not.toHaveBeenCalled();
-  });
-
-  it('clipboard:stage-image removes images staged more than a week ago', async () => {
-    electronMock.clipboard.read.mockResolvedValue([
-      { types: ['image/png'], getType: vi.fn(async () => new Blob([Buffer.from([1])])) },
-    ]);
-    const staged = join('/mock/temp/komla-clipboard-images/staged');
-    mockReaddirSync.mockReturnValueOnce([{ name: 'old' }, { name: 'recent' }] as never);
-    mockStatSync.mockImplementation(
-      (path) =>
-        ({
-          mtimeMs: Date.now() - (path === join(staged, 'old') ? 8 : 6) * 24 * 60 * 60 * 1000,
-        }) as never
-    );
-    const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
-    const { ipcMain } = (await import('electron')) as unknown as {
-      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
-    };
-
-    registerAppHandlers();
-    await ipcMain._invoke('clipboard:stage-image');
-
-    expect(mockRmSync.mock.calls).toEqual([
-      [join(staged, 'old'), { recursive: true, force: true }],
-    ]);
   });
 
   it('clipboard:stage-image returns null when clipboard has no image', async () => {

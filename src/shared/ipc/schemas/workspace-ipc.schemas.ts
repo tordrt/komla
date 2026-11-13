@@ -58,6 +58,10 @@ const workspaceEnvironmentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('ssh'), hostId: idSchema }).strip(),
 ]);
 
+export const stagePromptAttachmentsArgsSchema = z.tuple([
+  z.array(untrimmedSafePathSchema).max(MAX_PROMPT_ATTACHMENTS),
+]);
+
 export const createWorkspaceParamsSchema = z
   .object({
     name: z.string().optional(),

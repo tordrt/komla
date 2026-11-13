@@ -2867,3 +2867,34 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 export const useWorkspacesStore = create<WorkspacesState>()(
   shareUnchangedWorkspaces(createWorkspacesState)
 );
+
+// The workspace this window shows and when it opened it, so one that reaches the Trash after
+// can close.
+let openedWorkspaceId: string | null = null;
+let openedAt = 0;
+
+/**
+ * Closes the open workspace once it reaches the Trash from elsewhere, such as from another window
+ * that handled an agent's `komla trash`, as a move to the Trash from this window does. One opened
+ * from the Trash stays open.
+ */
+useWorkspacesStore.subscribe(({ selectedWorkspaceId, workspaces }, previous) => {
+  if (selectedWorkspaceId !== openedWorkspaceId) {
+    openedWorkspaceId = selectedWorkspaceId;
+    openedAt = Date.now();
+    return;
+  }
+  if (!selectedWorkspaceId || workspaces === previous.workspaces) return;
+  const workspace = workspaces.find((w) => w.id === selectedWorkspaceId);
+  if (workspace?.status !== 'trashed' || (workspace.trashedAt ?? 0) <= openedAt) return;
+  useLayoutStore.getState().setCurrentWorkspace(null);
+  useWorkspacesStore.setState({ selectedWorkspaceId: null });
+  useDevServerPreviewStore.getState().clearSshPreviewForwardState(workspace.id, {
+    keepStopped: true,
+  });
+  if (!isSshWorkspace(workspace)) {
+    useFileListStore.getState().invalidate(workspace.workingDirectory, workspace.id);
+  }
+  disposeTerminalRenderers(workspace.terminals.map((t) => t.id));
+  useLayoutStore.getState().clearWorkspaceLayout(workspace.id);
+});

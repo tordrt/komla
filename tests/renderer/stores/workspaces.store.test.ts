@@ -4553,6 +4553,71 @@ describe('workspaces.store', () => {
       );
     });
 
+    it('closes the open workspace once it reaches the Trash from elsewhere', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const trashedLater = { ...ws, status: 'trashed' as const, trashedAt: Date.now() + 60_000 };
+      const api = createApiMock({ getWorkspaces: vi.fn().mockResolvedValue([trashedLater]) });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+      useLayoutStore.getState().initializeWorkspaceLayout('ws-1', 'term-1');
+
+      await useWorkspacesStore.getState().loadWorkspaces();
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull();
+      expect(useLayoutStore.getState().currentWorkspaceId).toBeNull();
+      expect(useLayoutStore.getState().tabsByWorkspace['ws-1']).toBeUndefined();
+    });
+
+    it('closes the open workspace whichever refetch brings it in the Trash', () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+
+      useWorkspacesStore.setState({
+        workspaces: [{ ...ws, status: 'trashed', trashedAt: Date.now() + 60_000 }],
+      });
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull();
+    });
+
+    it('keeps a workspace opened from the Trash open', async () => {
+      const ws = createWorkspace({
+        id: 'ws-1',
+        status: 'trashed',
+        trashedAt: Date.now() - 60_000,
+        terminals: [],
+      });
+      const api = createApiMock({ getWorkspaces: vi.fn().mockResolvedValue([ws]) });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+
+      await useWorkspacesStore.getState().loadWorkspaces();
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ws-1');
+    });
+
+    it('keeps the restored workspace open when a fetch from before the restore lands after it', async () => {
+      const ws = createWorkspace({
+        id: 'ws-1',
+        status: 'trashed',
+        trashedAt: Date.now() - 60_000,
+        terminals: [],
+      });
+      const fetched = createDeferred<ReturnType<typeof createWorkspace>[]>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockReturnValue(fetched.promise),
+        updateWorkspace: vi.fn().mockResolvedValue(undefined),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+
+      const loading = useWorkspacesStore.getState().loadWorkspaces();
+      await useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', false);
+      fetched.resolve([ws]);
+      await loading;
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ws-1');
+    });
+
     it('offers to undo a move to the Trash, putting the workspace back where it was and reopening it', async () => {
       const ws = createWorkspace({ id: 'ws-1', customName: 'Fix login', order: 0, terminals: [] });
       const other = createWorkspace({ id: 'ws-2', order: 1, terminals: [] });

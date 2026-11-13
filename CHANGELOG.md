@@ -14,10 +14,16 @@
 - Stepping onto an SSH workspace after a restart, sleep or dropped connection opens it right away and connects in the background, instead of leaving the previous workspace on screen.
 - Workspaces started in the background no longer resize their split panes' terminals twice the first time you open them.
 - The workspace card no longer shows a "Connecting…" spinner.
+- A workspace started with `komla launch`, from your phone or by an automation, now shows its project in the sidebar even if you'd hidden it, so you no longer have to search for it.
+- A workspace you opened from the Working shelf moves back into its group as soon as its agent stops, instead of only once you switch away.
 
 ### Fixes
 
 - Quitting Komla right after opening a workspace no longer sometimes leaves it running in the background.
+- A request to review settings changes or allow a message is no longer cancelled by a stray Enter or Escape while you're typing to an agent. Only the Cancel button cancels it.
+- An agent on an SSH host no longer keeps spinning after it finished while the connection was down.
+- An SSH workspace launched with a long prompt now starts its agent, instead of appearing without one.
+- An SSH workspace's Git status is up to date right after a commit, land or push, including on hosts with many workspaces, instead of showing it a commit ahead.
 - After switching environment in the New Workspace dialog, Enter now launches the workspace instead of switching the environment back.
 - A workspace moved to the Trash is always stopped first, so the Trash no longer holds workspaces that are still running.
 - An SSH workspace that's missing from its host no longer shows "Failed to create SSH workspace" again every time it changes.

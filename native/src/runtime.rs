@@ -10,7 +10,7 @@ use anyhow::{bail, Context};
 use komla::{
     CompanionSnapshotPayload, FileListFingerprint, RepositoryEventClassifier,
     RepositoryEventFilter, RepositoryEventKind, RepositoryWatchPaths, RepositoryWatchSignal,
-    RepositoryWatcher, SnapshotDebounce, MAX_CHANGED_PATHS,
+    RepositoryWatchers, SnapshotDebounce, MAX_CHANGED_PATHS,
 };
 use serde::Deserialize;
 
@@ -141,7 +141,6 @@ struct WorkspaceRuntime {
     retry_at_ms: u64,
     retry_delay_ms: u64,
     watcher_recovery: WatcherRecovery,
-    watcher: Option<RepositoryWatcher>,
     event_overflowed: Arc<AtomicBool>,
     working_tree_dirty: bool,
     scan_working_tree_changed: bool,
@@ -173,6 +172,7 @@ impl WorkspaceRuntime {
         config: WorkspaceConfig,
         workspace_key: usize,
         sender: SyncSender<WatchEvent>,
+        watcher: &mut RepositoryWatchers,
         now_ms: u64,
     ) -> Self {
         let event_overflowed = Arc::new(AtomicBool::new(false));
@@ -190,7 +190,6 @@ impl WorkspaceRuntime {
             retry_at_ms: 0,
             retry_delay_ms: 1_000,
             watcher_recovery: WatcherRecovery::new(),
-            watcher: None,
             event_overflowed,
             working_tree_dirty: true,
             scan_working_tree_changed: true,
@@ -202,7 +201,7 @@ impl WorkspaceRuntime {
             scan_in_flight: false,
             delivery_in_flight: false,
         };
-        if let Err(error) = runtime.load_repository(workspace_key, sender, now_ms) {
+        if let Err(error) = runtime.load_repository(workspace_key, sender, watcher, now_ms) {
             eprintln!(
                 "workspace initialization failed for {}: {error:#}",
                 runtime.config.workspace_id
@@ -216,6 +215,7 @@ impl WorkspaceRuntime {
         &mut self,
         workspace_key: usize,
         sender: SyncSender<WatchEvent>,
+        watcher: &mut RepositoryWatchers,
         now_ms: u64,
     ) -> anyhow::Result<()> {
         trace_sync(
@@ -234,7 +234,7 @@ impl WorkspaceRuntime {
         let paths = RepositoryWatchPaths::discover(&self.config.working_tree)?;
         let filter = RepositoryEventFilter::load(&self.config.working_tree)?;
         let event_sink = WatchEventSink::new(sender, self.event_overflowed.clone());
-        let watcher = RepositoryWatcher::start(&paths, &filter, move |event| {
+        let registered = watcher.register(workspace_key, &paths, &filter, move |event| {
             event_sink.send(WatchEvent {
                 workspace_key,
                 event,
@@ -242,20 +242,16 @@ impl WorkspaceRuntime {
         });
         self.paths = Some(paths);
         self.filter = Some(filter);
-        self.watcher = match watcher {
-            Ok(watcher) => {
-                self.watcher_recovery.record_success();
-                Some(watcher)
-            }
+        match registered {
+            Ok(()) => self.watcher_recovery.record_success(),
             Err(error) => {
                 eprintln!(
                     "native watcher could not be started for {}: {error:#}",
                     self.config.workspace_id
                 );
                 self.watcher_recovery.record_failure(now_ms);
-                None
             }
-        };
+        }
         self.debounce.mark_integrity_lost(now_ms);
         Ok(())
     }
@@ -342,6 +338,7 @@ fn reload_workspaces(
     configs: Vec<WorkspaceConfig>,
     next_workspace_key: &mut usize,
     sender: &SyncSender<WatchEvent>,
+    watcher: &mut RepositoryWatchers,
     now_ms: u64,
 ) -> Vec<usize> {
     let mut removed = Vec::new();
@@ -352,6 +349,9 @@ fn reload_workspaces(
         }
         keep
     });
+    for key in &removed {
+        watcher.unregister(*key);
+    }
     for config in configs {
         if workspaces
             .iter()
@@ -363,6 +363,7 @@ fn reload_workspaces(
             config,
             *next_workspace_key,
             sender.clone(),
+            watcher,
             now_ms,
         ));
         *next_workspace_key += 1;
@@ -378,6 +379,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
     let client = KomlaClient::new(config.endpoint.clone());
     let (sender, receiver) = mpsc::sync_channel(WATCH_EVENT_QUEUE_CAPACITY);
     let mut workspaces = Vec::with_capacity(config.workspaces.len());
+    let mut watcher = RepositoryWatchers::default();
 
     let mut next_workspace_key = 0;
     reload_workspaces(
@@ -385,6 +387,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
         std::mem::take(&mut config.workspaces),
         &mut next_workspace_key,
         &sender,
+        &mut watcher,
         now_ms(),
     );
 
@@ -426,6 +429,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
                 reloaded.workspaces,
                 &mut next_workspace_key,
                 &sender,
+                &mut watcher,
                 now,
             ) {
                 scanner.forget(removed);
@@ -433,7 +437,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
         }
         for workspace in workspaces.iter_mut() {
             let workspace_key = workspace.key;
-            restart_watcher_if_due(workspace, workspace_key, &sender, now);
+            restart_watcher_if_due(workspace, workspace_key, &sender, &mut watcher, now);
             start_scan_if_due(workspace, workspace_key, &mut scanner, now);
             submit_snapshot_if_due(workspace, workspace_key, &transport, now);
         }
@@ -459,12 +463,13 @@ fn restart_watcher_if_due(
     workspace: &mut WorkspaceRuntime,
     workspace_key: usize,
     sender: &SyncSender<WatchEvent>,
+    watcher: &mut RepositoryWatchers,
     now_ms: u64,
 ) {
     if !workspace.watcher_recovery.should_retry(now_ms) {
         return;
     }
-    if let Err(error) = workspace.load_repository(workspace_key, sender.clone(), now_ms) {
+    if let Err(error) = workspace.load_repository(workspace_key, sender.clone(), watcher, now_ms) {
         eprintln!(
             "workspace could not be reinitialized for {}: {error:#}",
             workspace.config.workspace_id
@@ -736,7 +741,7 @@ fn apply_event(event: WatchEvent, workspaces: &mut [WorkspaceRuntime]) {
         Some(RepositoryWatchSignal::IntegrityLost) => {
             workspace.mark_working_tree_unknown();
             workspace.debounce.mark_integrity_lost(now_ms());
-            workspace.watcher = None;
+            // The rebuild replaces the watches once the new ones are in place.
             workspace.watcher_recovery.request_restart(now_ms());
         }
         None => {}
@@ -780,7 +785,8 @@ mod tests {
     use komla::FileListFingerprint;
     use komla::{
         BranchObservation, CompanionSnapshotPayload, RepositoryEventFilter, RepositorySnapshot,
-        RepositoryWatchPaths, SnapshotDebounce, MAX_CHANGED_PATHS, NAMES_CHANGED_PATHS,
+        RepositoryWatchPaths, RepositoryWatchers, SnapshotDebounce, MAX_CHANGED_PATHS,
+        NAMES_CHANGED_PATHS,
     };
     use tempfile::tempdir;
 
@@ -839,6 +845,7 @@ mod tests {
             .unwrap();
         assert!(initialized.status.success());
         let (sender, _receiver) = std::sync::mpsc::sync_channel(4);
+        let mut watcher = RepositoryWatchers::default();
 
         let invalid = WorkspaceRuntime::initialize(
             WorkspaceConfig {
@@ -848,6 +855,7 @@ mod tests {
             },
             0,
             sender.clone(),
+            &mut watcher,
             1_000,
         );
         let valid = WorkspaceRuntime::initialize(
@@ -858,6 +866,7 @@ mod tests {
             },
             1,
             sender,
+            &mut watcher,
             1_000,
         );
 
@@ -874,6 +883,7 @@ mod tests {
             target_branch: "main".to_owned(),
         };
         let (sender, _receiver) = std::sync::mpsc::sync_channel(4);
+        let mut watcher = RepositoryWatchers::default();
         let mut workspaces = Vec::new();
         let mut next_key = 0;
         reload_workspaces(
@@ -881,6 +891,7 @@ mod tests {
             vec![config("kept"), config("removed")],
             &mut next_key,
             &sender,
+            &mut watcher,
             1_000,
         );
         // The kept workspace has delivered its initial snapshot.
@@ -891,6 +902,7 @@ mod tests {
             vec![config("kept"), config("added")],
             &mut next_key,
             &sender,
+            &mut watcher,
             2_000,
         );
 
@@ -914,6 +926,7 @@ mod tests {
             vec![config("added")],
             &mut next_key,
             &sender,
+            &mut watcher,
             3_000,
         );
         reload_workspaces(
@@ -921,10 +934,66 @@ mod tests {
             vec![config("added"), config("kept")],
             &mut next_key,
             &sender,
+            &mut watcher,
             4_000,
         );
         assert_eq!(earlier, 1_000);
         assert_eq!(workspaces[1].sequence, 4_000);
+    }
+
+    // Each native watcher is an inotify instance on Linux, and a host allows a user only a few,
+    // shared with every other program the user runs. A workspace whose watcher can't start
+    // reports changes only when its retries come due, up to five minutes apart.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn workspaces_share_one_native_watcher() {
+        let watchdog = crate::test_watchdog::Watchdog::start("workspaces_share_one_native_watcher");
+        let temp = tempdir().unwrap();
+        let configs: Vec<_> = ["first", "second", "third"]
+            .iter()
+            .map(|workspace_id| {
+                let working_tree = temp.path().join(workspace_id);
+                std::fs::create_dir(&working_tree).unwrap();
+                assert!(Command::new("git")
+                    .arg("init")
+                    .current_dir(&working_tree)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success());
+                WorkspaceConfig {
+                    workspace_id: (*workspace_id).to_owned(),
+                    working_tree,
+                    target_branch: "main".to_owned(),
+                }
+            })
+            .collect();
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        let mut watcher = RepositoryWatchers::default();
+        let started = komla::native_watchers_started_on_this_thread();
+
+        watchdog.step("start the workspaces");
+        let mut workspaces = Vec::new();
+        let mut next_key = 0;
+        reload_workspaces(
+            &mut workspaces,
+            configs,
+            &mut next_key,
+            &sender,
+            &mut watcher,
+            1_000,
+        );
+        watchdog.step("rebuild one workspace's watches");
+        workspaces[1]
+            .load_repository(1, sender.clone(), &mut watcher, 2_000)
+            .unwrap();
+
+        assert!(workspaces.iter().all(|workspace| workspace.paths.is_some()));
+        assert_eq!(
+            komla::native_watchers_started_on_this_thread() - started,
+            1,
+            "every workspace should be watched through one native watcher"
+        );
     }
 
     #[test]
@@ -1028,7 +1097,6 @@ mod tests {
             retry_at_ms: 0,
             retry_delay_ms: 1_000,
             watcher_recovery: WatcherRecovery::new(),
-            watcher: None,
             event_overflowed: Arc::new(AtomicBool::new(false)),
             working_tree_dirty: true,
             scan_working_tree_changed: true,
@@ -1075,7 +1143,6 @@ mod tests {
             retry_at_ms: 0,
             retry_delay_ms: 1_000,
             watcher_recovery: WatcherRecovery::new(),
-            watcher: None,
             event_overflowed: Arc::new(AtomicBool::new(false)),
             working_tree_dirty: true,
             scan_working_tree_changed: true,
@@ -1122,6 +1189,7 @@ mod tests {
             .status
             .success());
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        let mut watcher = RepositoryWatchers::default();
         watchdog.step("start the first watcher");
         let mut workspaces = [WorkspaceRuntime::initialize(
             WorkspaceConfig {
@@ -1131,6 +1199,7 @@ mod tests {
             },
             0,
             sender.clone(),
+            &mut watcher,
             1_000,
         )];
         let mut scanner = SnapshotScanner::new();
@@ -1169,7 +1238,7 @@ mod tests {
         send_event(git_dir.join("index"), &mut workspaces);
         watchdog.step("replace the watcher");
         workspaces[0]
-            .load_repository(0, sender.clone(), 2_000)
+            .load_repository(0, sender.clone(), &mut watcher, 2_000)
             .unwrap();
         watchdog.step("check the signals after the rebuild");
         super::start_scan_if_due(&mut workspaces[0], 0, &mut scanner, u64::MAX);
@@ -1234,6 +1303,7 @@ mod tests {
         let working_tree = temp.path().canonicalize().unwrap();
         let folder = working_tree.join(".komla-files");
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        let mut watcher = RepositoryWatchers::default();
         let mut workspaces = [WorkspaceRuntime::initialize(
             WorkspaceConfig {
                 workspace_id: "workspace-1".to_owned(),
@@ -1242,6 +1312,7 @@ mod tests {
             },
             0,
             sender.clone(),
+            &mut watcher,
             1_000,
         )];
         let send_event = |path: std::path::PathBuf, workspaces: &mut [WorkspaceRuntime]| {
@@ -1263,7 +1334,9 @@ mod tests {
         send_event(folder.clone(), &mut workspaces);
         std::fs::write(folder.join(".gitignore"), "*\n").unwrap();
         send_event(folder.join(".gitignore"), &mut workspaces);
-        workspaces[0].load_repository(0, sender, 2_000).unwrap();
+        workspaces[0]
+            .load_repository(0, sender, &mut watcher, 2_000)
+            .unwrap();
         assert!(!workspaces[0].working_tree_dirty);
 
         // A file viewer showing an imported file updates from these reports.
@@ -1317,6 +1390,7 @@ mod tests {
             .status
             .success());
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        let mut watcher = RepositoryWatchers::default();
         let mut workspaces = [WorkspaceRuntime::initialize(
             WorkspaceConfig {
                 workspace_id: "workspace-1".to_owned(),
@@ -1325,6 +1399,7 @@ mod tests {
             },
             0,
             sender,
+            &mut watcher,
             1_000,
         )];
         let mut scanner = SnapshotScanner::new();
@@ -1479,6 +1554,7 @@ mod tests {
             "initial",
         ]);
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        let mut watcher = RepositoryWatchers::default();
         let mut workspaces = [WorkspaceRuntime::initialize(
             WorkspaceConfig {
                 workspace_id: "workspace-1".to_owned(),
@@ -1487,6 +1563,7 @@ mod tests {
             },
             0,
             sender,
+            &mut watcher,
             1_000,
         )];
         let mut scanner = SnapshotScanner::new();

@@ -8,10 +8,10 @@ pub use protocol::{
     COMPANION_PROTOCOL_VERSION, MAX_CHANGED_PATHS,
 };
 pub use repository::{
-    run_target_operation, sync_target_branch, BranchObservation, FileListFingerprint,
-    RepositoryEventClassifier, RepositoryEventFilter, RepositoryEventKind, RepositorySnapshot,
-    RepositoryWatchPaths, RepositoryWatchSignal, RepositoryWatcher, SnapshotDebounce, TargetAction,
-    TargetResult, NAMES_CHANGED_PATHS,
+    native_watchers_started_on_this_thread, run_target_operation, sync_target_branch,
+    BranchObservation, FileListFingerprint, RepositoryEventClassifier, RepositoryEventFilter,
+    RepositoryEventKind, RepositorySnapshot, RepositoryWatchPaths, RepositoryWatchSignal,
+    RepositoryWatchers, SnapshotDebounce, TargetAction, TargetResult, NAMES_CHANGED_PATHS,
 };
 
 #[cfg(test)]
@@ -532,10 +532,12 @@ mod tests {
         let paths = RepositoryWatchPaths::discover(&repository).unwrap();
         let filter = RepositoryEventFilter::load(&repository).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
-        let _watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
-            let _ = sender.send(event);
-        })
-        .unwrap();
+        let mut _watcher = super::RepositoryWatchers::default();
+        _watcher
+            .register(0, &paths, &filter, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
 
         fs::write(repository.join("README.md"), "changed\n").unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -575,10 +577,12 @@ mod tests {
         let filter = RepositoryEventFilter::load(&repository).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
         watchdog.step("start the watcher");
-        let watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
-            let _ = sender.send(event);
-        })
-        .unwrap();
+        let mut watcher = super::RepositoryWatchers::default();
+        watcher
+            .register(0, &paths, &filter, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
 
         // Working-tree directories are watched one level deep, so files in a new
         // directory are seen only after the watcher is rebuilt.
@@ -629,10 +633,12 @@ mod tests {
         let paths = RepositoryWatchPaths::discover(&repository).unwrap();
         let filter = RepositoryEventFilter::load(&repository).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
-        let _watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
-            let _ = sender.send(event);
-        })
-        .unwrap();
+        let mut _watcher = super::RepositoryWatchers::default();
+        _watcher
+            .register(0, &paths, &filter, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
 
         // Searches and builds open thousands of files. Queued reads overflow the
         // companion's event queue, which counts as a working-tree change.
@@ -668,10 +674,12 @@ mod tests {
         let paths = RepositoryWatchPaths::discover(&repository).unwrap();
         let filter = RepositoryEventFilter::load(&repository).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
-        let _watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
-            let _ = sender.send(event);
-        })
-        .unwrap();
+        let mut _watcher = super::RepositoryWatchers::default();
+        _watcher
+            .register(0, &paths, &filter, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
 
         fs::write(paths.common_git_dir.join("info/exclude"), "generated/\n").unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -720,10 +728,12 @@ mod tests {
         let paths = RepositoryWatchPaths::discover(&linked).unwrap();
         let filter = RepositoryEventFilter::load(&linked).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
-        let _watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
-            let _ = sender.send(event);
-        })
-        .unwrap();
+        let mut _watcher = super::RepositoryWatchers::default();
+        _watcher
+            .register(0, &paths, &filter, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
 
         for branch in ["main", "linked"] {
             let lock = paths.git_dir.join("HEAD.lock");
@@ -1198,5 +1208,204 @@ mod tests {
         assert_eq!(hook.kind, "input-required");
         assert_eq!(hook.message, "PermissionRequest");
         assert_eq!(hook.hook_input["tool"], "Bash");
+    }
+
+    type WatchEvents = std::sync::mpsc::Receiver<notify::Result<notify::Event>>;
+
+    /// Waits for an event naming a path that `wanted` matches, passing over others, such as
+    /// late events of an earlier step, and returns every path the events named until then.
+    fn wait_for_path(
+        events: &WatchEvents,
+        wanted: impl Fn(&std::path::Path) -> bool,
+    ) -> Option<Vec<std::path::PathBuf>> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut seen = Vec::new();
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match events.recv_timeout(left) {
+                Ok(Ok(event)) => {
+                    let found = event.paths.iter().any(|path| wanted(path));
+                    seen.extend(event.paths);
+                    if found {
+                        return Some(seen);
+                    }
+                }
+                Ok(Err(_)) => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    fn init_repository(directory: &std::path::Path, files: &[&str]) {
+        fs::create_dir(directory).unwrap();
+        git(directory, &["-c", "init.defaultBranch=main", "init"]);
+        git(directory, &["config", "user.email", "komla@example.com"]);
+        git(directory, &["config", "user.name", "Komla Test"]);
+        for file in files {
+            let path = directory.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "initial\n").unwrap();
+        }
+        git(directory, &["add", "."]);
+        git(directory, &["commit", "-m", "initial"]);
+    }
+
+    fn watch(
+        watcher: &mut super::RepositoryWatchers,
+        key: usize,
+        working_tree: &std::path::Path,
+    ) -> WatchEvents {
+        let paths = RepositoryWatchPaths::discover(working_tree).unwrap();
+        let filter = RepositoryEventFilter::load(working_tree).unwrap();
+        let (sender, events) = std::sync::mpsc::channel();
+        watcher
+            .register(key, &paths, &filter, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
+        events
+    }
+
+    // Komla fast-forwards a target branch no worktree has checked out by moving its ref in
+    // the Git directory the workspaces of a repository share. Every one of them must hear of
+    // it, while it hears only of what's theirs.
+    #[test]
+    fn watchers_route_events_to_every_repository_watching_the_path() {
+        let watchdog = crate::test_watchdog::Watchdog::start(
+            "watchers_route_events_to_every_repository_watching_the_path",
+        );
+        let temp = tempdir().unwrap();
+        let repository = temp.path().join("repository");
+        let linked = temp.path().join("linked");
+        let other = temp.path().join("other");
+        init_repository(&repository, &["README.md"]);
+        init_repository(&other, &["README.md"]);
+        git(
+            &repository,
+            &["worktree", "add", "-b", "feature", linked.to_str().unwrap()],
+        );
+        git(&repository, &["switch", "--detach"]);
+
+        let mut watcher = super::RepositoryWatchers::default();
+        watchdog.step("watch the repositories");
+        let main_checkout = watch(&mut watcher, 0, &repository);
+        let worktree = watch(&mut watcher, 1, &linked);
+        let unrelated = watch(&mut watcher, 2, &other);
+
+        let land = |branch: &str| {
+            fs::write(linked.join("README.md"), format!("{branch}\n")).unwrap();
+            git(&linked, &["commit", "-am", branch]);
+            git(
+                &linked,
+                &["update-ref", &format!("refs/heads/{branch}"), "HEAD"],
+            );
+        };
+        // Git writes a ref as a lock file it renames over the ref.
+        let names_branch = |branch: &'static str| {
+            move |path: &std::path::Path| {
+                path.parent()
+                    .is_some_and(|parent| parent.ends_with("refs/heads"))
+                    && path
+                        .file_name()
+                        .is_some_and(|name| name.to_string_lossy().starts_with(branch))
+            }
+        };
+        watchdog.step("move main");
+        land("main");
+        assert!(wait_for_path(&main_checkout, names_branch("main")).is_some());
+        assert!(wait_for_path(&worktree, names_branch("main")).is_some());
+
+        watchdog.step("stop watching the main checkout");
+        watcher.unregister(0);
+        land("landed");
+        assert!(
+            wait_for_path(&worktree, names_branch("landed")).is_some(),
+            "the shared Git directory stays watched while a workspace still wants it"
+        );
+
+        watchdog.step("edit the unrelated repository");
+        let in_other = |path: &std::path::Path| {
+            path.components()
+                .any(|component| component.as_os_str() == "other")
+        };
+        fs::write(other.join("README.md"), "changed\n").unwrap();
+        assert!(wait_for_path(&unrelated, in_other).is_some());
+        // The worktree hears of its own edit after anything it heard of the unrelated one.
+        fs::write(linked.join("marker"), "").unwrap();
+        let heard = wait_for_path(&worktree, |path| path.ends_with("linked/marker"))
+            .expect("the worktree hears of its own edit");
+        assert!(
+            !heard.iter().any(|path| in_other(path)),
+            "a repository hears only of the paths it watches: {heard:?}"
+        );
+        watchdog.step("drop the watcher");
+        drop(watcher);
+        drop(temp);
+    }
+
+    // A tool can move a directory away and back, and notify drops the watches on it and below
+    // it. The rebuild that follows must watch them all again.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rebuild_watches_again_below_a_directory_moved_back() {
+        let watchdog = crate::test_watchdog::Watchdog::start(
+            "rebuild_watches_again_below_a_directory_moved_back",
+        );
+        let temp = tempdir().unwrap();
+        let repository = temp.path().join("repository");
+        init_repository(&repository, &["src/a/lib.txt"]);
+        let source = repository.join("src");
+        let moved = repository.join("src.moved");
+
+        let mut watcher = super::RepositoryWatchers::default();
+        let events = watch(&mut watcher, 0, &repository);
+        watchdog.step("move the directory away and back");
+        fs::rename(&source, &moved).unwrap();
+        assert!(wait_for_path(&events, |path| path.ends_with("repository/src")).is_some());
+        fs::rename(&moved, &source).unwrap();
+        assert!(wait_for_path(&events, |path| path.ends_with("repository/src")).is_some());
+
+        watchdog.step("rebuild");
+        let events = watch(&mut watcher, 0, &repository);
+        fs::write(source.join("a/new.txt"), "new\n").unwrap();
+        assert!(
+            wait_for_path(&events, |path| path.ends_with("src/a/new.txt")).is_some(),
+            "the directory below the one moved back is watched"
+        );
+        watchdog.step("drop the watcher");
+        drop(watcher);
+        drop(temp);
+    }
+
+    // A checkout can remove a directory and create it again, and inotify drops a watch with
+    // the directory it watched. The rebuild that follows must watch the new one. Elsewhere a
+    // rebuild starts a new native watcher.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rebuild_watches_a_recreated_directory() {
+        let watchdog =
+            crate::test_watchdog::Watchdog::start("rebuild_watches_a_recreated_directory");
+        let temp = tempdir().unwrap();
+        let repository = temp.path().join("repository");
+        init_repository(&repository, &["src/lib.txt"]);
+        let source = repository.join("src");
+
+        let mut watcher = super::RepositoryWatchers::default();
+        let events = watch(&mut watcher, 0, &repository);
+        watchdog.step("recreate the directory");
+        fs::remove_dir_all(&source).unwrap();
+        assert!(wait_for_path(&events, |path| path.ends_with("repository/src")).is_some());
+        fs::create_dir(&source).unwrap();
+
+        watchdog.step("rebuild");
+        let events = watch(&mut watcher, 0, &repository);
+        fs::write(source.join("new.txt"), "new\n").unwrap();
+        assert!(
+            wait_for_path(&events, |path| path.ends_with("src/new.txt")).is_some(),
+            "the recreated directory is watched"
+        );
+        watchdog.step("drop the watcher");
+        drop(watcher);
+        drop(temp);
     }
 }

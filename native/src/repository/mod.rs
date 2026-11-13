@@ -3,8 +3,9 @@ mod watcher;
 
 pub use snapshot::{BranchObservation, FileListFingerprint, RepositorySnapshot};
 pub use watcher::{
-    RepositoryEventClassifier, RepositoryEventFilter, RepositoryEventKind, RepositoryWatchPaths,
-    RepositoryWatchSignal, RepositoryWatcher, SnapshotDebounce, NAMES_CHANGED_PATHS,
+    native_watchers_started_on_this_thread, RepositoryEventClassifier, RepositoryEventFilter,
+    RepositoryEventKind, RepositoryWatchPaths, RepositoryWatchSignal, RepositoryWatchers,
+    SnapshotDebounce, NAMES_CHANGED_PATHS,
 };
 
 mod target;
